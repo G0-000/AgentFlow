@@ -1,12 +1,15 @@
 # ============================================================================
 # AgentFlow · agents/thread_state.py —— 图状态定义
+# ============================================================================
 # ----------------------------------------------------------------------------
-# 文件: backend/packages/harness/agentflow/agents/thread_state.py
-# 仿原: evoflow/agents/thread_state.py（原版还定义 SandboxState/ThreadDataState
-#       等子状态 TypedDict，M1 只保留 ThreadState 本体 + SandboxState 占位）
+# 📋 【一、基础信息】
+# 文件路径: backend/packages/harness/agentflow/agents/thread_state.py
+# 对标来源: evoflow/agents/thread_state.py
+#   原版还定义 SandboxState/ThreadDataState 等子状态 TypedDict，
+#   M1 只保留 ThreadState 本体 + SandboxState 占位。
 # 里程碑: M1
 # ----------------------------------------------------------------------------
-# 结构图:
+# 🧩 【二、模块结构图】
 # ┌──────────────────────────────────────────────────────┐
 # │ class ThreadState(AgentState)                         │
 # │   └─ AgentState（langchain 内置）自带:                │
@@ -15,11 +18,24 @@
 # │       → "更新 = 追加" reducer，多轮上下文靠它累积     │
 # │   └─ M1 增加: thread_id: str                         │
 # │       → checkpointer 按它在 SQLite 定位历史状态      │
-# │                                                      │
-# │ 关键: 继承 AgentState（而非自己写 TypedDict）        │
-# │       = 原版做法，reducer 语义由官方维护              │
 # └──────────────────────────────────────────────────────┘
+# ----------------------------------------------------------------------------
+# 💡 【三、设计思想】
+# 1. 继承 AgentState（而非自己写 TypedDict）= 原版做法，
+#    reducer 语义由官方维护，不重复造轮子。
+# 2. thread_id 作为状态字段，检查点按它分桶存储/恢复。
+# ----------------------------------------------------------------------------
+# 📤 【四、对外导出 & 内部函数】
+# ✅ 对外导出
+# 1. ThreadState: 图状态类型（AgentState + thread_id）
+# 🔒 内部私有函数
+# 无
+# ----------------------------------------------------------------------------
+# ⚠️ 【五、修改注意事项 / 风险点】
+# 1. M2 实际 create_agent 未用此状态（内置 messages 状态）；
+#    接入自定义状态时同步改 create_agent 的 state_schema
 # ============================================================================
+
 from __future__ import annotations
 
 from typing import NotRequired

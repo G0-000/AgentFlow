@@ -1,17 +1,17 @@
 # AgentFlow 应用层 pyproject（仿 EvoFlow/backend/pyproject.toml 的 workspace 结构）
 [project]
-name = "agentflow"
+name = "agent-flow"
 version = "0.1.0"
 description = "AgentFlow Gateway - 仿写 EvoFlow 的应用层（gateway，M1 骨架）"
 requires-python = ">=3.12"
 dependencies = [
-    "agentflow-harness",                  # 核心层（workspace 成员，对应原版 evoflow-harness）
-    "fastapi>=0.115.0",                   # 网关框架（M7 用，先备着）
-    "httpx>=0.28.0",                      # HTTP 客户端
-    "python-multipart>=0.0.20",           # 文件上传解析（M7）
-    "sse-starlette>=2.1.0",               # SSE 流式（M2 流式输出）
-    "uvicorn[standard]>=0.34.0",          # FastAPI 服务器
-    "websockets>=12.0",                   # WebSocket
+    "agentflow-harness",         # 核心层（workspace 成员，对应原版 evoflow-harness）
+    "fastapi>=0.115.0",          # 网关框架（M7 用，先备着）
+    "httpx>=0.28.0",             # HTTP 客户端
+    "python-multipart>=0.0.20",  # 文件上传解析（M7）
+    "sse-starlette>=2.1.0",      # SSE 流式（M2 流式输出）
+    "uvicorn[standard]>=0.34.0", # FastAPI 服务器
+    "websockets>=12.0",          # WebSocket
 ]
 
 [dependency-groups]

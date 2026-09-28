@@ -1,12 +1,15 @@
 # ============================================================================
 # AgentFlow · cli/main.py —— 终端对话 CLI
+# ============================================================================
 # ----------------------------------------------------------------------------
-# 文件: backend/packages/harness/agentflow/cli/main.py
-# 仿原: evoflow/cli/main.py（原版 CLI 是调试入口，正式入口在 gateway；
-#       M1 先让 CLI 成为唯一入口，M7 再让位给 API）
-# 里程碑: M1
+# 📋 【一、基础信息】
+# 文件路径: backend/packages/harness/agentflow/cli/main.py
+# 对标来源: evoflow/cli/main.py
+#   原版 CLI 是调试入口，正式入口在 gateway；M1 先让 CLI 成为唯一入口，
+#   M7 再让位给 API。
+# 里程碑: M1（M2 接入工具/中间件/标题落库/启动信息）
 # ----------------------------------------------------------------------------
-# 结构图（M1 完整调用链，从上往下）:
+# 🧩 【二、模块结构图】
 # ┌──────────────────────────────────────────────────────────────┐
 # │ main()  [uv run agentflow]                                   │
 # │   ├─ 解析 --thread <id> 参数                                 │
@@ -14,15 +17,38 @@
 # │   ├─ load_config()          ← 读 config.yaml → AppConfig    │
 # │   ├─ init_db(db_path)       ← 建表（sessions 等）            │
 # │   ├─ create_sqlite_checkpointer(db_path) ← 图状态检查点      │
+# │   ├─ get_available_tools()  ← 工具目录（M2，5 个）            │
+# │   ├─ 中间件 2 个            ← 标题/线程目录（M2）            │
 # │   ├─ create_chat_model(cfg) ← 模型工厂 → ChatOpenAI          │
 # │   ├─ make_lead_agent(...)   ← 构建主 Agent（带持久化）       │
 # │   ├─ SessionRepository(conn) ← 会话记录 repo                 │
 # │   └─ 对话循环:                                               │
 # │        你 > 输入 → agent.stream({messages}, thread_id)       │
-# │              → 逐块打印回复 → 存消息记录                      │
+# │              → 逐块打印回复 → 存消息记录 → 首轮标题落库       │
 # │              → 循环直到 exit                                 │
 # └──────────────────────────────────────────────────────────────┘
+# ----------------------------------------------------------------------------
+# 💡 【三、设计思想】
+# 1. 入口层只做装配（配置/模型/检查点/repo/工具/中间件），业务在 agents/。
+# 2. 启动信息显示模型/工具/会话/数据：调试 P-014/015/016 全靠它
+#    （限流/流式问题第一时间看到是哪个模型/供应商）。
+# 3. 对话循环容错：模型调用失败给友好提示不崩（P-015 限流实测）。
+# 4. 从任何目录启动都能找到配置（Path(__file__) 定位，P-014）。
+# ----------------------------------------------------------------------------
+# 📤 【四、对外导出 & 内部函数】
+# ✅ 对外导出
+# 1. main: CLI 入口（pyproject [project.scripts] agentflow 指向它）
+# 🔒 内部私有函数
+# 1. _parse_args: --thread 参数解析
+# 2. _generate_thread_id: 新会话 ID（时间戳+随机数）
+# 3. _iter_chunk_messages: 从 langgraph stream chunk 递归取消息（P-016）
+# ----------------------------------------------------------------------------
+# ⚠️ 【五、修改注意事项 / 风险点】
+# 1. Path(__file__).parents[5] 定位项目根，改目录层级会失效
+# 2. _iter_chunk_messages 兼容嵌套/顶层两种 chunk 形态，勿简化
+# 3. 首轮标题逻辑依赖 TitleMiddleware 写 state["title"]，两者需同步
 # ============================================================================
+
 from __future__ import annotations
 
 import argparse
@@ -37,6 +63,10 @@ from agentflow.agents.checkpointer.provider import create_sqlite_checkpointer
 # agents 域（主 Agent + 检查点）
 from agentflow.agents.lead_agent.agent import make_lead_agent
 
+# 中间件（M2）：自动标题 + 线程数据目录
+from agentflow.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
+from agentflow.agents.middlewares.title_middleware import TitleMiddleware
+
 # 配置域
 from agentflow.config.app_config import load_config
 from agentflow.config.paths import default_db_path
@@ -47,6 +77,9 @@ from agentflow.models.factory import create_chat_model
 # 持久化域（建表 / 会话 repo）
 from agentflow.persistence.bootstrap import init_db
 from agentflow.persistence.session_repositories import SessionRepository
+
+# 工具域（M2）：工具收集 + 结果存取
+from agentflow.tools.tools import get_available_tools
 
 
 def _parse_args() -> argparse.Namespace:
@@ -108,26 +141,39 @@ def main() -> None:
     # ④ 检查点：图状态 → SQLite（同一 thread_id 恢复对话）
     checkpointer = create_sqlite_checkpointer(db_path)
 
-    # ⑤ 模型 + ⑥ Agent：装配出可 stream 的编译图
-    model = create_chat_model(cfg.models.chat)
-    agent = make_lead_agent(model=model, checkpointer=checkpointer)
+    # ⑤ 工具（M2）：工具目录全量工具（5 个）
+    tools = get_available_tools()
 
-    # ⑦ 会话记录 repo（业务记录：会话 + 明文消息）
+    # ⑥ 中间件（M2）：标题 + 线程数据目录（挂到 Agent 上，横向能力）
+    middlewares = [TitleMiddleware(), ThreadDataMiddleware()]
+
+    # ⑦ 模型 + ⑧ Agent：装配出可 stream 的编译图（模型↔工具循环）
+    model = create_chat_model(cfg.models.chat)
+    agent = make_lead_agent(
+        model=model,
+        checkpointer=checkpointer,
+        tools=tools,
+        middlewares=middlewares,
+    )
+
+    # ⑨ 会话记录 repo（业务记录：会话 + 明文消息）
     sessions = SessionRepository(conn)
 
     # ⑧ 确定 thread_id（复用 or 新建），并保证会话行存在
     thread_id = args.thread or _generate_thread_id()
     sessions.create(thread_id)
 
-    # ⑨ 启动信息：让控制台一眼看清"用的哪个模型 / 供应商 / 会话 / 数据"
+    # ⑩ 启动信息：让控制台一眼看清"用的哪个模型 / 供应商 / 会话 / 数据 / 工具"
     #    （需求：之前只显示会话 ID 太少；模型信息对调试很关键，P-014/015/016 都要靠它）
     reuse = "续用历史会话" if args.thread else "新会话"
     print(f"模型: {cfg.models.chat.model}（provider={cfg.models.chat.provider} @ {cfg.models.chat.base_url}）")
+    print(f"工具: {len(tools)} 个（{', '.join(t.name for t in tools)}）")
     print(f"会话: {thread_id}（{reuse}；--thread {thread_id} 可继续此会话）")
     print(f"数据: {db_path}")
     print("输入 exit 退出\n")
 
-    # ⑩ 对话循环
+    # ⑪ 对话循环
+    first_turn = True
     while True:
         try:
             user_input = input("你 > ").strip()
@@ -168,6 +214,19 @@ def main() -> None:
         # 存回复 + 刷新会话时间
         sessions.add_message(thread_id, "assistant", full_response)
         sessions.touch(thread_id)
+
+        # 自动标题（M2）：首轮对话后读图状态里的 title（TitleMiddleware 生成），
+        # 落库 sessions.title + 控制台提示。标题只生成一次（中间件幂等）。
+        if first_turn:
+            first_turn = False
+            try:
+                st = agent.get_state({"configurable": {"thread_id": thread_id}})
+                title = (st.values or {}).get("title") if st else None
+                if title:
+                    sessions.update_title(thread_id, title)
+                    print(f"\n[标题] {title}")
+            except Exception:  # noqa: BLE001, S110 —— 标题失败不影响对话（无日志，调试期静默）
+                pass
 
 
 if __name__ == "__main__":

@@ -1,12 +1,14 @@
 # ============================================================================
 # AgentFlow · persistence/session_repositories.py —— 会话数据访问
+# ============================================================================
 # ----------------------------------------------------------------------------
-# 文件: backend/packages/harness/agentflow/persistence/session_repositories.py
-# 仿原: evoflow/persistence/session_repositories.py + thread_repositories.py
-#       （原版会话/线程分两个 repo，M1 合并成一个 SessionRepository）
-# 里程碑: M1
+# 📋 【一、基础信息】
+# 文件路径: backend/packages/harness/agentflow/persistence/session_repositories.py
+# 对标来源: evoflow/persistence/session_repositories.py + thread_repositories.py
+#   原版会话/线程分两个 repo，M1 合并成一个 SessionRepository。
+# 里程碑: M1（M2 加 update_title 落库）
 # ----------------------------------------------------------------------------
-# 结构图:
+# 🧩 【二、模块结构图】
 # ┌────────────────────────────────────────────────────┐
 # │ SessionRepository(BaseRepository)                  │
 # │   table_name → "sessions"                          │
@@ -17,9 +19,26 @@
 # │       → 写入 session_messages（带时间戳）          │
 # │   list_messages(session_id) → 按时间序消息        │
 # │   touch(thread_id) → 更新 updated_at              │
-# │   update_title(thread_id, title) → 改标题         │
+# │   update_title(thread_id, title) → 改标题（M2）   │
 # └────────────────────────────────────────────────────┘
+# ----------------------------------------------------------------------------
+# 💡 【三、设计思想】
+# 1. 会话业务记录与检查点互补：检查点存图状态二进制（恢复对话用），
+#    本 repo 存业务明文（会话列表/消息展示用）。
+# 2. create 用 INSERT OR IGNORE：重复建会话幂等（不覆盖已存在会话）。
+# 3. update_title 由 CLI 首轮后调用（M2 标题落库链路终点）。
+# ----------------------------------------------------------------------------
+# 📤 【四、对外导出 & 内部函数】
+# ✅ 对外导出
+# 1. SessionRepository: 会话数据访问（继承 BaseRepository）
+# 🔒 内部私有函数
+# 无
+# ----------------------------------------------------------------------------
+# ⚠️ 【五、修改注意事项 / 风险点】
+# 1. INSERT OR IGNORE 幂等：重复 create 不会覆盖原会话
+# 2. 消息明文存储：本地单机调试够用；M7 gateway 上线前考虑脱敏
 # ============================================================================
+
 from __future__ import annotations
 
 import sqlite3

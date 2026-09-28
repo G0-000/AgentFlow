@@ -1,14 +1,16 @@
 # ============================================================================
 # AgentFlow · models/patched_openai.py —— OpenAI 兼容供应商适配
+# ============================================================================
 # ----------------------------------------------------------------------------
-# 文件: backend/packages/harness/agentflow/models/patched_openai.py
-# 仿原: evoflow/models/patched_openai.py
-#       （原版为什么要 patch：不同供应商在 extra body / 参数别名 / 流式格式
-#        上有细微差异，需要一个收敛层统一处理。M1 直接返回标准 ChatOpenAI，
-#        先留出扩展点；M6 做多供应商时再补 patch）
+# 📋 【一、基础信息】
+# 文件路径: backend/packages/harness/agentflow/models/patched_openai.py
+# 对标来源: evoflow/models/patched_openai.py
+#   原版为什么要 patch：不同供应商在 extra body / 参数别名 / 流式格式
+#   上有细微差异，需要一个收敛层统一处理。
+#   M1 直接返回标准 ChatOpenAI，先留出扩展点；M6 做多供应商时再补。
 # 里程碑: M1
 # ----------------------------------------------------------------------------
-# 结构图:
+# 🧩 【二、模块结构图】
 # ┌──────────────────────────────────────────────┐
 # │ create_openai_compatible_chat(ChatModelConfig)│
 # │   → ChatOpenAI(                              │
@@ -18,7 +20,24 @@
 # │       temperature=cfg.temperature,           │
 # │     )                                        │
 # └──────────────────────────────────────────────┘
+# ----------------------------------------------------------------------------
+# 💡 【三、设计思想】
+# 1. ChatOpenAI 向 base_url 发 /chat/completions 请求——
+#    DeepSeek/GLM/Ollama/LM Studio 都兼容此协议。
+# 2. 独立文件 = 收敛层占位：供应商差异（如智谱 thinking extra_body,
+#    P-016）以后都收在这里，不污染 factory。
+# ----------------------------------------------------------------------------
+# 📤 【四、对外导出 & 内部函数】
+# ✅ 对外导出
+# 1. create_openai_compatible_chat: 建 OpenAI 兼容对话模型
+# 🔒 内部私有函数
+# 无
+# ----------------------------------------------------------------------------
+# ⚠️ 【五、修改注意事项 / 风险点】
+# 1. 智谱流式需 extra_body thinking disabled（P-016），M6 在此补 patch
+# 2. 当前直接返回标准 ChatOpenAI，无副作用
 # ============================================================================
+
 from __future__ import annotations
 
 # ChatOpenAI: LangChain 对 OpenAI 协议的封装
