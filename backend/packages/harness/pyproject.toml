@@ -1,0 +1,34 @@
+# AgentFlow 核心层 pyproject（仿 EvoFlow/backend/packages/harness/pyproject.toml）
+[project]
+name = "agentflow-harness"
+version = "0.1.0"
+description = "AgentFlow agent harness - 仿写 EvoFlow 的核心运行时（agents/tools/persistence）"
+requires-python = ">=3.12"
+dependencies = [
+    "langgraph>=1.0.6,<1.0.10",           # 图编排引擎（Agent 骨架）
+    "langgraph-prebuilt==1.0.8",          # 对齐原版 lock：prebuilt 1.0.9+ 需 langgraph 新 API（ExecutionInfo）
+    "langgraph-checkpoint-sqlite>=3.0.3", # SQLite 检查点（会话持久化）
+    "langchain>=1.2.3",                   # LangChain 基础
+    "langchain-openai>=1.1.7",            # OpenAI 兼容模型（GLM/Ollama/LM Studio）
+    "pydantic>=2.12.5",                   # 数据模型/配置
+    "pyyaml>=6.0.3",                      # 读 config.yaml
+    "httpx>=0.28.0",                      # HTTP 客户端
+    "dotenv>=0.9.9",                      # 读 .env
+    "tiktoken>=0.8.0",                    # token 计数（M3 上下文）
+    "typing_extensions>=4.12.0",          # 类型扩展
+]
+
+# 仿原版 [project.scripts]：evoflow = "evoflow.cli.main:main"
+[project.scripts]
+agentflow = "agentflow.cli.main:main"
+
+# 仿原版：hatchling 构建 + wheel 打包 agentflow 包
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["agentflow"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

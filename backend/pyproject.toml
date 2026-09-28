@@ -1,112 +1,29 @@
-# ====================================================================
-# AgentFlow — pyproject.toml（学习注释版）
-# 基于 原版 backend/pyproject.toml + packages/harness/pyproject.toml
-# 逐行注释整理。规则：
-#   - 每一行都有注释：用途 + 需要的里程碑 + 默认是否启用
-#   - 用 # 注释掉的行 = 暂不需要（后续里程碑再取消注释）
-#   - 本文件可直接 uv sync 通过（单包结构，无 workspace 依赖）
-# ====================================================================
-
+# AgentFlow 应用层 pyproject（仿 EvoFlow/backend/pyproject.toml 的 workspace 结构）
 [project]
-name = "agent-flow"                       # 项目名
-version = "0.1.0"                         # 项目从 0.1.0 起步
-description = "AgentFlow - Gateway — Agent Runtime API and control plane for long-running Agent Teams"   # 原版描述是 EvoFlow Gateway + control plane
-# readme = "README.md"                    # 原版引用仓库 README.md；你还没有 README，先注释
-requires-python = ">=3.12"                # Python 版本下限。原版 backend 要求 3.12+；harness 版是 3.10+（取更严的）
-
+name = "agentflow"
+version = "0.1.0"
+description = "AgentFlow Gateway - 仿写 EvoFlow 的应用层（gateway，M1 骨架）"
+requires-python = ">=3.12"
 dependencies = [
-    # ---------- ① 核心运行时（M1 就要，来源：原 harness 版）----------
-    "langgraph>=1.0.6,<1.0.10",           # LangGraph 图编排引擎 = Agent 的骨架（三个入口图就是它）
-    "langgraph-checkpoint-sqlite>=3.0.3", # SQLite 检查点：图状态持久化（会话重启能恢复，M1 验收点）
-    "langchain>=1.2.3",                   # LangChain 基础库（prompt/chain 工具）
-    "langchain-openai>=1.1.7",            # OpenAI 兼容接口：接 GLM / DeepSeek / 本地 Ollama·LM Studio
-    "pydantic>=2.12.5",                   # 数据模型 + 配置校验（EvoFlow 的 ThreadState 就是 pydantic 模型）
-    "pyyaml>=6.0.3",                      # 读 config.yaml（配置驱动）
-    "httpx>=0.28.0",                      # HTTP 客户端（工具调用 / 对外请求）
-    "dotenv>=0.9.9",                      # 读 .env（API key 放环境变量）
-    "tiktoken>=0.8.0",                    # token 计数（上下文压缩/管理，M3 前后开始有用）
-    "typing_extensions>=4.12.0",          # Python 类型系统扩展（新版语法兼容）
-
-    # ---------- ② 网关 / 流式（M2-M7 用，来源：原 backend 版）----------
-    "fastapi>=0.115.0",                   # 网关框架（EvoFlow 的 Gateway API 就是 FastAPI）
-    "uvicorn[standard]>=0.34.0",          # FastAPI 的服务器（[standard] 带性能/热载扩展）
-    "sse-starlette>=2.1.0",               # SSE 流式输出（Agent 回复流式回传前端/IM 就靠它）
-    "python-multipart>=0.0.20",           # multipart 表单解析（M7 文件上传路由）
-    "websockets>=12.0",                   # WebSocket 支持（IM 渠道/实时通道）
-
-    # ---------- ③ M3 知识库向量（到里程碑时取消注释）----------
-    # "sqlite-vec>=0.1.6",                # SQLite 向量检索扩展（知识库 RAG 余弦召回）— M3 开启
-    # "jieba>=0.42.1",                    # 中文分词（代码索引 FTS / 知识分块）— M3 后按需
-    # "sentence-transformers>=3.0.0",     # 本地向量模型（BGE）— 官方发行版也没默认打包；可用云端向量替代
-
-    # ---------- ④ M6 扩展（到里程碑时取消注释）----------
-    # "langchain-mcp-adapters>=0.1.0",    # MCP 协议适配（接外部工具服务器）— M6
-    # "langgraph-api>=0.7.0,<0.8.0",      # LangGraph API 服务（原版双运行时之一）— 按需
-    # "langgraph-cli>=0.4.14",            # LangGraph CLI（原版用来跑图服务）— 按需
-
-    # ---------- ⑤ M7 IM 渠道（原 backend 版全量依赖，先全注释）----------
-    # "lark-oapi>=1.4.0",                 # 飞书 SDK — M7（EvoFlow 飞书渠道最完整）
-    # "slack-sdk>=3.33.0",                # Slack SDK — M7
-    # "python-telegram-bot>=21.0",        # Telegram — M7
-    # "dingtalk-stream>=0.20",            # 钉钉 stream 协议 — M7
-    # "markdown-to-mrkdwn>=0.3.1",        # Markdown → Slack 格式转换 — M7
-    # "qrcode>=7.0",                      # 二维码生成（登录/分享）— 按需
-    # "certifi>=2024.0.0",                # CA 证书链（HTTPS 校验）— 一般系统自带，可不显式依赖
-    # "cryptography>=41.0.0",             # 加解密（渠道鉴权/令牌）— 按需
-    # "aiohttp>=3.9.0",                   # 异步 HTTP（IM 长连接/回调）— M7 按需
-
-    # ---------- ⑥ 重服务集成（原 harness 版，默认不用，按需才开）----------
-    # "kubernetes>=30.0.0",               # K8s 客户端（EvoFlow 的沙箱可跑在容器里）
-    # "playwright>=1.54.0",               # 浏览器自动化（browser_* 工具）— 重依赖，按需
-    # "markitdown[all,xlsx]>=0.0.1a2",    # 各种文档 → Markdown（知识库解析）
-    # "tavily-python>=0.7.17",            # Tavily 搜索 API（community 搜索工具）
-    # "firecrawl-py>=1.15.0",             # Firecrawl 网页抓取（community）
-    # "readabilipy>=0.3.0",               # 网页正文提取（readability）
-    # "markdownify>=1.2.2",               # HTML → Markdown
-    # "ddgs>=9.10.0",                     # DuckDuckGo 搜索（免费搜索后端）
-    # "duckdb>=1.4.4",                    # DuckDB（EvoFlow 可观测性用列式库）
-    # "langchain-anthropic>=1.3.4",       # Anthropic（Claude）适配
-    # "langchain-deepseek>=1.0.1",        # DeepSeek 适配
-    # "langchain-google-genai>=4.2.1",    # Gemini 适配
-    # "claude-agent-sdk>=0.1.65",         # Claude Code 会话接入 — 不需要
-    # "agent-client-protocol>=0.4.0",     # Agent 客户端协议
-    # "agent-sandbox>=0.0.19",            # 沙箱执行协议 — M4 按需
-    # "langgraph-runtime-inmem>=0.22.1",  # 内存运行时（测试用）
-    # "javalang>=0.13.0",                 # Java AST 解析（code_index）— 不需要
-    # "tree-sitter>=0.21.3,<0.22",        # JS/TS 语法树（code_index）— 不需要
-    # "tree-sitter-languages>=1.10.2",    # tree-sitter 语言包 — 不需要
+    "agentflow-harness",                  # 核心层（workspace 成员，对应原版 evoflow-harness）
+    "fastapi>=0.115.0",                   # 网关框架（M7 用，先备着）
+    "httpx>=0.28.0",                      # HTTP 客户端
+    "python-multipart>=0.0.20",           # 文件上传解析（M7）
+    "sse-starlette>=2.1.0",               # SSE 流式（M2 流式输出）
+    "uvicorn[standard]>=0.34.0",          # FastAPI 服务器
+    "websockets>=12.0",                   # WebSocket
 ]
-
-# ---------- 原版 workspace 结构（已注释）----------
-# [tool.uv.workspace]
-# members = ["packages/harness"]         # 原版：核心层是独立子包，backend 通过 workspace 引用它
-# [tool.uv.sources]
-# evoflow-harness = { workspace = true } # 原版：backend 依赖 evoflow-harness 核心层
-# ↑ 这就是你刚才 uv sync 报错的原因：只 copy 了 backend/pyproject.toml，
-#   但没 copy packages/harness。你的仿写用单包结构，不需要这两块。
 
 [dependency-groups]
-dev = [
-    "pytest>=8.0.0",                      # 测试框架（EvoFlow 576 个测试就是它跑的）
-    "pytest-asyncio>=0.24.0",             # 异步测试支持（Agent 全异步）
-    "ruff>=0.14.11",                      # lint + 格式化（EvoFlow 的代码风格检查）
-    # "pyinstaller>=6.16.0",              # 打包成桌面安装包 — 原版做发行用，你不需要
-]
+dev = ["pytest>=8.0.0", "pytest-asyncio>=0.24.0", "ruff>=0.14.11"]
+
+# 仿原版：声明核心层子包为 workspace 成员
+[tool.uv.workspace]
+members = ["packages/harness"]
+
+# 仿原版：应用层通过 workspace 引用核心层
+[tool.uv.sources]
+agentflow-harness = { workspace = true }
 
 [tool.pytest.ini_options]
-asyncio_mode = "auto"                     # pytest-asyncio 自动识别 async 测试（EvoFlow 同款）
-# asyncio_default_fixture_loop_scope = "function"  # 原版：fixture 默认 function 级作用域（按需开）
-# markers = [                             # 原版测试标记：unit / tasks / playwright（按需开）
-#     "unit: small unit-scoped tests",
-#     "tasks: tests for tasks API / router",
-#     "playwright: real Chromium via Playwright",
-# ]
-# filterwarnings = [...]                  # 原版屏蔽第三方库弃用警告的清单（遇到烦人警告再抄）
-
-# ====================================================================
-# 其他原版配置（harness 版，仿写暂不需要）：
-#   [build-system]  requires = ["hatchling"]  → 打包 wheel 用
-#   [tool.hatch.build.targets.wheel]          → 指定打包进 wheel 的包/资源目录
-#   [project.scripts] evoflow = "..."         → 命令行入口（CLI）
-# 等做到"发布/CLI"阶段再补。
-# ====================================================================
+asyncio_mode = "auto"
