@@ -40,7 +40,7 @@
 # 1. main: CLI 入口（pyproject [project.scripts] agentflow 指向它）
 # 🔒 内部私有函数
 # 1. _parse_args: --thread 参数解析
-# 2. _generate_thread_id: 新会话 ID（时间戳+随机数）
+# 2. _generate_thread_id: 新会话 ID（os.urandom 随机 8 字节 → 32 位 hex）
 # 3. _iter_chunk_messages: 从 langgraph stream chunk 递归取消息（P-016）
 # ----------------------------------------------------------------------------
 # ⚠️ 【五、修改注意事项 / 风险点】
@@ -94,12 +94,15 @@ def _parse_args() -> argparse.Namespace:
 
 
 def _generate_thread_id() -> str:
-    """新会话 ID：时间戳 + 随机数（无需全局唯一检查，冲突概率可忽略）。"""
+    """新会话 ID：os.urandom(8) 生成 8 个随机字节 → 32 位十六进制字符串。
+
+    纯随机、无需查重（8 字节随机冲突概率可忽略），不暴露创建时间。
+    """
     return os.urandom(8).hex()
 
 
 def _iter_chunk_messages(chunk: dict) -> list:
-    """从 langgraph stream chunk 里取新增消息（递归）。
+    """从 langgraph stream chunk 里取新增消息（递归）——把每一小块 chunk 里的新消息捞出来。
 
     langgraph 1.0.x create_agent 的 stream 输出是**节点嵌套结构**：
         {'model': {'messages': [AIMessage(...)]}}
@@ -119,14 +122,14 @@ def _iter_chunk_messages(chunk: dict) -> list:
 
 def main() -> None:
     """CLI 入口：装配所有组件，进入对话循环。"""
-    args = _parse_args()
+    args = _parse_args()  # ① 解析命令行：--thread 复用会话
 
-    # ① 密钥：加载项目根 .env（AGENTFLOW_ROOT 向上找）
+    # ② 密钥：加载项目根 .env（AGENTFLOW_ROOT 向上找）
     #    config.yaml 里 ${DEEPSEEK_API_KEY} 由 models_yaml 在此之后展开
     project_root = Path(__file__).resolve().parents[5]
     load_dotenv(project_root / ".env")
 
-    # ② 配置：config.yaml → AppConfig（路径/日志/模型）
+    # ③ 配置：config.yaml → AppConfig（路径/日志/模型）
     #    对齐原版：固定用项目根 config.yaml（Path(__file__).parents[N] 向上找），
     #    不依赖"从哪个目录启动"——否则在 backend/ 下跑会找不到根目录的 config.yaml
     cfg = load_config(str(project_root / "config.yaml"))
@@ -134,20 +137,20 @@ def main() -> None:
         print("缺少模型配置：请检查 config.yaml 的 models 段，并在 .env 填写 API key")
         return
 
-    # ③ 数据库：建表 + 连接（sessions/session_messages + checkpoint 表）
+    # ④ 数据库：建表 + 连接（sessions/session_messages + checkpoint 表）
     db_path = default_db_path()
     conn = init_db(db_path)
 
-    # ④ 检查点：图状态 → SQLite（同一 thread_id 恢复对话）
+    # ⑤ 检查点：图状态 → SQLite（同一 thread_id 恢复对话）
     checkpointer = create_sqlite_checkpointer(db_path)
 
-    # ⑤ 工具（M2）：工具目录全量工具（5 个）
+    # ⑥ 工具（M2）：工具目录全量工具（5 个）
     tools = get_available_tools()
 
-    # ⑥ 中间件（M2）：标题 + 线程数据目录（挂到 Agent 上，横向能力）
+    # ⑦ 中间件（M2）：标题 + 线程数据目录（挂到 Agent 上，横向能力）
     middlewares = [TitleMiddleware(), ThreadDataMiddleware()]
 
-    # ⑦ 模型 + ⑧ Agent：装配出可 stream 的编译图（模型↔工具循环）
+    # ⑧ 模型 + ⑨ Agent：装配出可 stream 的编译图（模型↔工具循环）
     model = create_chat_model(cfg.models.chat)
     agent = make_lead_agent(
         model=model,
@@ -156,23 +159,25 @@ def main() -> None:
         middlewares=middlewares,
     )
 
-    # ⑨ 会话记录 repo（业务记录：会话 + 明文消息）
+    # ⑩ 会话记录 repo（业务记录：会话 + 明文消息）
     sessions = SessionRepository(conn)
 
-    # ⑧ 确定 thread_id（复用 or 新建），并保证会话行存在
+    # ⑪ 确定 thread_id（复用 or 新建），并保证会话行存在
     thread_id = args.thread or _generate_thread_id()
     sessions.create(thread_id)
 
-    # ⑩ 启动信息：让控制台一眼看清"用的哪个模型 / 供应商 / 会话 / 数据 / 工具"
+    # ⑫ 启动信息：让控制台一眼看清"用的哪个模型 / 供应商 / 会话 / 数据 / 工具"
     #    （需求：之前只显示会话 ID 太少；模型信息对调试很关键，P-014/015/016 都要靠它）
     reuse = "续用历史会话" if args.thread else "新会话"
-    print(f"模型: {cfg.models.chat.model}（provider={cfg.models.chat.provider} @ {cfg.models.chat.base_url}）")
+    print(
+        f"模型: {cfg.models.chat.model}（provider={cfg.models.chat.provider} @ {cfg.models.chat.base_url}）"
+    )
     print(f"工具: {len(tools)} 个（{', '.join(t.name for t in tools)}）")
     print(f"会话: {thread_id}（{reuse}；--thread {thread_id} 可继续此会话）")
     print(f"数据: {db_path}")
     print("输入 exit 退出\n")
 
-    # ⑪ 对话循环
+    # ⑬ 对话循环
     first_turn = True
     while True:
         try:
