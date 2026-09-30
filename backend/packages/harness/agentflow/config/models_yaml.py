@@ -68,6 +68,8 @@ def load_models_from_yaml(raw: dict | None) -> ModelConfig | None:
 
     # ② 读取 chat 段（缺省给空 dict，字段再逐个兜底默认值）
     chat_raw = raw.get("chat") or {}
+    # M3：embedding 段（知识库向量化；缺省空 dict 走默认值）
+    emb_raw = raw.get("embedding") or {}
 
     # ③ 逐字段装配，api_key 走环境变量展开
     chat = ChatModelConfig(
@@ -77,4 +79,11 @@ def load_models_from_yaml(raw: dict | None) -> ModelConfig | None:
         api_key=_resolve_env(chat_raw.get("api_key", "")),
         temperature=float(chat_raw.get("temperature", 0.3)),
     )
-    return ModelConfig(chat=chat)
+    embedding = ChatModelConfig(
+        provider=emb_raw.get("provider", "openai-compatible"),
+        base_url=emb_raw.get("base_url", ""),
+        model=emb_raw.get("model", ""),
+        api_key=_resolve_env(emb_raw.get("api_key", "")),
+        temperature=float(emb_raw.get("temperature", 0.0)),
+    )
+    return ModelConfig(chat=chat, embedding=embedding)

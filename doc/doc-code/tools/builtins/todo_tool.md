@@ -77,5 +77,33 @@ M2 简化为单一 dict（所有会话共用一个池）。M3 改存储时对齐
 
 A: 照原版语义 → 交给任务中心；真要落库 → M3+ 加 SQLite `todos` 表，只改函数体签名不动。
 
+**Q: 模型如何从对话"读懂是待办"并调用本工具？（tool_calls 解析机制，2026-09-30）**
+
+A: 链路三步，职责分离清晰：
+
+```text
+① 模型"读懂" = 读工具说明书，不是理解业务
+   system prompt 里注入了每个工具的 description：
+   "todo: 会话内待办清单工具…当用户要求'帮我记个待办'时使用。动作: add=添加待办（title 必填）…"
+   模型把"帮我记一个待办：学完M2" 匹配到 description → 决定调 todo
+
+② 模型输出结构化指令（tool_calls JSON），不是自然语言
+   AIMessage(tool_calls=[{'name': 'todo', 'args': {'action': 'add', 'title': '学完M2'}}])
+   注意：此时模型并没有"处理数据"——它只声明"我要调 todo，参数填这些"
+
+③ 框架解析 + 工具处理数据
+   解析: langchain 读 tool_calls → 按 name='todo' 在注册表里找到本工具（@tool 注册）
+   校验: 按函数签名 schema 校验参数（action/title 类型、枚举合法性）
+   执行: 调用 todo_tool(action='add', title='学完M2') → 内部写 _todos 并返回字符串
+   回填: 返回字符串包成 ToolMessage（带 tool_call_id）回填给模型
+
+一句话分工：
+   模型决定"调哪个、参数填什么"（判断力）
+   框架决定"找哪个工具、怎么校验调用"（调度力）
+   工具自己处理数据（todo 函数体：写 dict / 格式化）
+   结果回填给模型（return_direct=True 则直接打印）
+```
+
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：todo_tool.py 头部注释 + 顶层符号。_
+_2026-09-30 追加：Q&A 归档区（模型读懂→tool_calls→解析执行三步链路，用户提问自动归纳）。_

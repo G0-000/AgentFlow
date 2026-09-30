@@ -62,6 +62,7 @@ from agentflow.agents.checkpointer.provider import create_sqlite_checkpointer
 
 # agents 域（主 Agent + 检查点）
 from agentflow.agents.lead_agent.agent import make_lead_agent
+from agentflow.agents.lead_agent.prompt import build_lead_agent_system_prompt
 
 # 中间件（M2）：自动标题 + 线程数据目录
 from agentflow.agents.middlewares.thread_data_middleware import ThreadDataMiddleware
@@ -71,12 +72,22 @@ from agentflow.agents.middlewares.title_middleware import TitleMiddleware
 from agentflow.config.app_config import load_config
 from agentflow.config.paths import default_db_path
 
+# M3 域：记忆门面 / 知识库服务 / 技能加载 / 工具注入
+from agentflow.knowledge.service import KnowledgeService
+from agentflow.memory.facade import MemoryFacade
+
 # 模型域（工厂）
 from agentflow.models.factory import create_chat_model
 
 # 持久化域（建表 / 会话 repo）
 from agentflow.persistence.bootstrap import init_db
+from agentflow.persistence.knowledge_repositories import KnowledgeRepository
+from agentflow.persistence.memory_repositories import MemoryRepository
 from agentflow.persistence.session_repositories import SessionRepository
+
+# skills 加载 + knowledge 工具注入（M3）
+from agentflow.skills.loader import build_skills_prompt
+from agentflow.tools.builtins.knowledge_tool import configure_knowledge_service
 
 # 工具域（M2）：工具收集 + 结果存取
 from agentflow.tools.tools import get_available_tools
@@ -150,13 +161,28 @@ def main() -> None:
     # ⑦ 中间件（M2）：标题 + 线程数据目录（挂到 Agent 上，横向能力）
     middlewares = [TitleMiddleware(), ThreadDataMiddleware()]
 
-    # ⑧ 模型 + ⑨ Agent：装配出可 stream 的编译图（模型↔工具循环）
+    # ⑧ 模型 + M3 记忆/知识装配 + ⑨ Agent（含记忆/技能注入）
     model = create_chat_model(cfg.models.chat)
+
+    # M3：记忆门面（跨会话用户事实）与知识库服务（分块/向量/检索）
+    #     用 db_path 模式（P-018）：LangGraph 工具在后台线程跑 SQL，
+    #     repo 按线程建连接，避免 SQLite 跨线程报错
+    memories = MemoryFacade(MemoryRepository(db_path=db_path))
+    knowledge = KnowledgeService(KnowledgeRepository(db_path=db_path), cfg.models.embedding)
+    configure_knowledge_service(knowledge)  # 挂到 knowledge 工具上（模块级句柄）
+
+    # M3：启动时注入"已记住的事实 + 可用技能"到系统提示词
+    #     （记忆随对话增长，新会话启动时读取最新快照——跨会话记住的入口）
+    memory_ctx = memories.recall(limit=10)
+    skills_ctx = build_skills_prompt()
+    system_prompt = build_lead_agent_system_prompt(memory_ctx, skills_ctx)
+
     agent = make_lead_agent(
         model=model,
         checkpointer=checkpointer,
         tools=tools,
         middlewares=middlewares,
+        system_prompt=system_prompt,
     )
 
     # ⑩ 会话记录 repo（业务记录：会话 + 明文消息）
@@ -173,6 +199,7 @@ def main() -> None:
         f"模型: {cfg.models.chat.model}（provider={cfg.models.chat.provider} @ {cfg.models.chat.base_url}）"
     )
     print(f"工具: {len(tools)} 个（{', '.join(t.name for t in tools)}）")
+    print(f"记忆: {memories.count()} 条 | 知识库: {len(knowledge.list_docs())} 文档")  # M3
     print(f"会话: {thread_id}（{reuse}；--thread {thread_id} 可继续此会话）")
     print(f"数据: {db_path}")
     print("输入 exit 退出\n")
@@ -193,6 +220,9 @@ def main() -> None:
 
         # 存用户消息（业务记录）
         sessions.add_message(thread_id, "user", user_input)
+
+        # M3：沉淀记忆（规则提取用户事实，静默落库；新会话启动时自动注入）
+        memories.remember(thread_id, "user", user_input)
 
         # 跑图：LangGraph 内部循环（模型→工具→模型），逐块流式回传
         print("Agent > ", end="", flush=True)

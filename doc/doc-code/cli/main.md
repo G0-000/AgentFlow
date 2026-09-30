@@ -360,9 +360,21 @@ def main() -> None:
     middlewares = [TitleMiddleware(), ThreadDataMiddleware()]  # ⑦ 中间件（M2）
 
     model = create_chat_model(cfg.models.chat)      # ⑧ 模型工厂 → ChatOpenAI
+
+    # M3：记忆门面 + 知识库服务（db_path 线程安全模式，P-018）
+    memories = MemoryFacade(MemoryRepository(db_path=db_path))
+    knowledge = KnowledgeService(KnowledgeRepository(db_path=db_path), cfg.models.embedding)
+    configure_knowledge_service(knowledge)          # 把服务挂到 knowledge 工具上
+
+    # M3：启动时注入"已记住的事实 + 可用技能"到系统提示词
+    memory_ctx = memories.recall(limit=10)          # 跨会话召回（新会话也记得）
+    skills_ctx = build_skills_prompt()
+    system_prompt = build_lead_agent_system_prompt(memory_ctx, skills_ctx)
+
     agent = make_lead_agent(                        # ⑨ 编译图（模型↔工具循环）
         model=model, checkpointer=checkpointer,
         tools=tools, middlewares=middlewares,
+        system_prompt=system_prompt,                # 记忆/技能随系统提示注入
     )
 
     sessions = SessionRepository(conn)              # ⑩ 会话业务记录 repo
@@ -375,15 +387,16 @@ def main() -> None:
         f"模型: {cfg.models.chat.model}（provider={cfg.models.chat.provider} @ {cfg.models.chat.base_url}）"
     )
     print(f"工具: {len(tools)} 个（{', '.join(t.name for t in tools)}）")
+    print(f"记忆: {memories.count()} 条 | 知识库: {len(knowledge.list_docs())} 文档")  # M3
     print(f"会话: {thread_id}（{reuse}；--thread {thread_id} 可继续此会话）")
     print(f"数据: {db_path}")                       # ⑫ 启动信息（调试 P-014/015/016）
     print("输入 exit 退出\n")
 ```
 
 **整块解析**：装配段只有一件事——**把零件造齐、接好，不干业务**。读法按"数据依赖"走：
-①-③ 先有命令行参数、密钥、配置 → ④⑤ 建库和检查点（持久化底座）→ ⑥⑦ 工具和中间件（Agent 的"手"和横切能力）→ ⑧⑨ 模型和 Agent（核心组装）→ ⑩⑪ 会话 repo 和 thread_id（业务记录 + 持久化钥匙）→ ⑫ 打印启动信息（让控制台一眼看清用的什么，限流/流式问题第一时间定位到供应商）。
+①-③ 先有命令行参数、密钥、配置 → ④⑤ 建库和检查点（持久化底座）→ ⑥⑦ 工具和中间件（Agent 的"手"和横切能力）→ ⑧ 模型 + **M3 记忆/知识装配**（`MemoryFacade` 管用户事实、`KnowledgeService` 管知识库、`configure_knowledge_service` 挂到 knowledge 工具）→ ⑨ Agent（**系统提示注入记忆召回 + 技能列表**——跨会话记住的入口）→ ⑩⑪ 会话 repo 和 thread_id（业务记录 + 持久化钥匙）→ ⑫ 打印启动信息（模型/工具/会话/数据/**记忆条数/知识文档数**，一眼看清状态，限流/流式问题第一时间定位到供应商）。
 
-两个细节：`parents[5]` 向上 5 级定位项目根，从任何目录启动都找得到 config.yaml（P-014）；`sessions.create` 用 `INSERT OR IGNORE`，重复建同 ID 会话不会覆盖旧数据（幂等）。
+两个细节：`parents[5]` 向上 5 级定位项目根，从任何目录启动都找得到 config.yaml（P-014）；`sessions.create` 用 `INSERT OR IGNORE`，重复建同 ID 会话不会覆盖旧数据（幂等）。**M3 为什么用 db_path 而非 conn**：knowledge 工具在 LangGraph 后台线程执行 SQL，SQLite 连接不能跨线程共用——repo 按线程建连接（P-018，详见问题日志）。
 
 ### 块 5：`main()` 对话循环（⑬，main 内部片段）
 
@@ -402,6 +415,7 @@ def main() -> None:
             break
 
         sessions.add_message(thread_id, "user", user_input)   # ① 先存用户消息
+        memories.remember(thread_id, "user", user_input)      # ①b M3：沉淀记忆（规则提取，静默落库）
 
         print("Agent > ", end="", flush=True)       # ② 打印前缀，立即显示
         full_response = ""
@@ -435,11 +449,12 @@ def main() -> None:
                 pass
 ```
 
-**整块解析**：一次运行 = 一个会话，循环处理直到退出。每轮五步：
+**整块解析**：一次运行 = 一个会话，循环处理直到退出。每轮六步：
 
 | 步 | 干什么 | 关键点 |
 |---|---|---|
 | ① 存用户消息 | `add_message(thread_id, "user", ...)` | 先存后跑：退出也能查到历史 |
+| ①b 沉淀记忆 | `memories.remember(...)` | M3：规则提取用户事实，静默落库；新会话启动自动注入 |
 | ②-③ 流式跑图 | `agent.stream(config={"thread_id": ...})` | 逐块取消息打印，`flush=True` 立即显示 |
 | ④ 存回复 | `add_message` + `touch` | 明文记录 + 更新会话时间 |
 | ⑤ 首轮标题 | `get_state` 读 `title` → 落库 | `first_turn` 保证只生成一次 |
@@ -558,6 +573,10 @@ A: 启动时打印的会话 ID 加 --thread 可继续上次对话（持久化验
 
 A: 图运行时的「对话笔记本」：messages 历史、title、工具结果等中间变量，默认只在内存（进程一退就丢）。checkpointer 把它按 thread_id 快照进 SQLite；同一 thread_id 再跑，快照读回 → 上轮记忆恢复。比喻：笔记本（图状态）→ 存档员（checkpointer）→ 抽屉（SQLite），thread_id 是钥匙。
 
+**Q: M3 记忆怎么跨会话记住？（与 checkpointer 的区别）**
+
+A: 两套记忆各管各的——checkpointer 存**对话上下文**（同一 thread_id 才恢复）；M3 memories 表存**用户事实**（"用户叫小王"），**与 thread_id 无关**，新会话启动时 `memories.recall()` 召回并注入 system prompt，所以换会话也记得。沉淀在对话循环 `memories.remember(...)`（规则提取，只存 user 消息，疑问句过滤）。
+
 **Q: argparse 是什么？（_parse_args 逐行解释）**
 
 A: **argparse**：Python 标准库的命令行参数解析器。程序启动时命令行参数存在 `sys.argv`（如 `["agentflow", "--thread", "abc"]`），argparse 负责把字符串按规则解析成结构化对象，代码里直接 `args.thread` 取值，不用手写字符串处理。
@@ -595,4 +614,4 @@ args = p.parse_args()
 3. 首轮标题逻辑依赖 TitleMiddleware 写 state["title"]，两者需同步
 
 ---
-_自动生成于 doc-code 规范落地（2026-09-28）。2026-09-29 更新：目录、顺序执行链流程图、成块代码解析、知识点；源码注释修正（_generate_thread_id 实现为 os.urandom 纯随机，编号理顺为 ①-⑬）。同日二更：块 3 docstring 与源码对齐；知识点 3 补「图状态」通俗解释 + 比喻 + main.py 三步对照；Q&A 新增「图状态是什么」。_
+_自动生成于 doc-code 规范落地（2026-09-28）。2026-09-29 更新：目录、顺序执行链流程图、成块代码解析、知识点；源码注释修正（_generate_thread_id 实现为 os.urandom 纯随机，编号理顺为 ①-⑬）。同日二更：块 3 docstring 与源码对齐；知识点 3 补「图状态」通俗解释 + 比喻 + main.py 三步对照；Q&A 新增「图状态是什么」。同日三更（M3）：块 4 装配段同步记忆/知识装配 + 系统提示注入；块 5 加 ①b 记忆沉淀；启动信息加记忆/知识条数；Q&A 新增「记忆怎么跨会话记住」；知识点 5 双份数据补充 memories 表（跨会话）。_

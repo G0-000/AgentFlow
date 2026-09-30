@@ -54,4 +54,33 @@ CREATE TABLE IF NOT EXISTS session_messages (
     content     TEXT NOT NULL,           -- 消息内容
     created_at  TEXT NOT NULL            -- 创建时间
 );
+
+-- 记忆表（M3）：一条记录 = 一条沉淀下来的用户事实
+CREATE TABLE IF NOT EXISTS memories (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,  -- 自增主键
+    thread_id   TEXT NOT NULL,           -- 来源会话（thread_id）
+    content     TEXT NOT NULL,           -- 事实内容（如"用户叫小王"）
+    source_role TEXT NOT NULL DEFAULT 'user',  -- 来源角色（user/assistant）
+    created_at  TEXT NOT NULL,           -- 沉淀时间
+    updated_at  TEXT NOT NULL            -- 更新时间
+);
+CREATE INDEX IF NOT EXISTS idx_memories_thread ON memories (thread_id);
+
+-- 知识库文档表（M3）：一条记录 = 一个导入的文档
+CREATE TABLE IF NOT EXISTS knowledge_docs (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,  -- 自增主键
+    title       TEXT NOT NULL,           -- 文档标题
+    source      TEXT DEFAULT '',         -- 来源（文件名/URL）
+    created_at  TEXT NOT NULL            -- 导入时间
+);
+
+-- 知识库分块表（M3）：一条记录 = 一个分块 + 其向量
+CREATE TABLE IF NOT EXISTS knowledge_chunks (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,  -- 自增主键
+    doc_id      INTEGER NOT NULL REFERENCES knowledge_docs(id),  -- 外键 → 文档
+    content     TEXT NOT NULL,           -- 分块文本
+    embedding   BLOB,                    -- 向量（JSON 序列化 float 列表）
+    created_at  TEXT NOT NULL            -- 分块时间
+);
+CREATE INDEX IF NOT EXISTS idx_chunks_doc ON knowledge_chunks (doc_id);
 """

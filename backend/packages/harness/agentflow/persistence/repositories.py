@@ -40,21 +40,43 @@
 from __future__ import annotations
 
 import sqlite3
+import threading
 from abc import ABC, abstractmethod
+
+from agentflow.persistence.db import connect
 
 
 class BaseRepository(ABC):
     """数据访问基类：统一 SQL 执行入口。
 
-    为什么要有基类:
-        1. 每个 repo 不重复写 conn.execute + commit 的样板
-        2. 统一约定"写操作 commit / 读操作不 commit"
-        3. 后续 audit（M4 沙箱审计表）可在此加统一钩子
+    连接策略（P-018 修复）:
+        - 传 conn: 主线程用（CLI 会话 repo 等，简单场景）
+        - 传 db_path: 线程本地连接（LangGraph 工具在后台线程跑 SQL，
+          SQLite 连接不能跨线程共用——每次执行从当前线程取/建连接）
     """
 
-    def __init__(self, conn: sqlite3.Connection):
-        """注入连接（由调用方创建并持有）。"""
-        self.conn = conn
+    def __init__(self, conn: sqlite3.Connection | None = None, db_path: str | None = None):
+        """注入连接（主线程）或数据库路径（线程安全模式）。"""
+        self._conn = conn
+        self._db_path = db_path
+        self._local = threading.local()
+
+    @property
+    def conn(self) -> sqlite3.Connection:
+        """取当前线程可用的连接。
+
+        - db_path 模式: 每个线程各自建/复用连接（SQLite 线程安全标准做法）
+        - conn 模式: 直接用注入的连接（调用方保证单线程使用）
+        """
+        if self._db_path:
+            c = getattr(self._local, "conn", None)
+            if c is None:
+                c = connect(self._db_path)  # 复用 db.connect 统一配置（WAL/外键/Row）
+                self._local.conn = c
+            return c
+        if self._conn is None:
+            raise RuntimeError("BaseRepository 需要 conn 或 db_path")
+        return self._conn
 
     @property
     @abstractmethod

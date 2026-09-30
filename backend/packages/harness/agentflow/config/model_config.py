@@ -59,6 +59,7 @@ class ChatModelConfig:
 
 @dataclass
 class ModelConfig:
-    """模型配置集合（M1 只有对话模型；M3 会加 embedding）。"""
+    """模型配置集合（M1 只有对话模型；M3 加 embedding）。"""
 
     chat: ChatModelConfig = field(default_factory=ChatModelConfig)
+    embedding: ChatModelConfig = field(default_factory=ChatModelConfig)

@@ -48,6 +48,19 @@ from typing import Any
 
 from langchain.tools import tool
 
+# 模块级服务句柄：由 CLI 装配时 configure_knowledge_service 注入
+# （@tool 是模块级对象无法接收实例，用显式配置函数替代依赖注入）
+_knowledge_service: Any = None
+
+
+def configure_knowledge_service(service: Any) -> None:
+    """装配时把 KnowledgeService 实例挂到工具上（M3）。
+
+    未配置时工具返回"未接入"提示（保持旧行为，测试/无库场景不崩）。
+    """
+    global _knowledge_service
+    _knowledge_service = service
+
 
 def _format_hit(h: dict[str, Any], index: int) -> str:
     """格式化一条知识库命中（照原版 _format_hit：标题/分数/摘要）。"""
@@ -67,25 +80,49 @@ _KNOWLEDGE_DESCRIPTION = """\
 action=search: 传 query（关键词/自然语言问题）。
 action=read: 传 doc_id（文档 ID）。
 action=list: 列出知识库文档（传 kb_name 可选）。
-注意: 当前知识库未接入时返回明确提示。
+注意: 知识库未建/未配置时返回明确提示。
 """
 
 
-@tool("knowledge", description=_KNOWLEDGE_DESCRIPTION, parse_docstring=False, return_direct=True)
+@tool("knowledge", description=_KNOWLEDGE_DESCRIPTION, parse_docstring=False, return_direct=False)
 def knowledge_tool(
     action: str = "search",
     query: str | None = None,
     doc_id: str | None = None,
     kb_name: str | None = None,
 ) -> str:
-    """知识库检索（使用条件见工具 description）。"""
-    # M2 占位实现：结构对齐原版（search/read/list 三动作 + _format_hit），
-    # 真实 RAG 在 M5（向量库）接入；此处返回明确提示避免模型误以为有结果。
+    """知识库检索（使用条件见工具 description）。
+
+    M3 改为 return_direct=False：检索结果回填模型，由模型"引用结果组织回答"
+    （标准 RAG 形态，验收点 3）。M2 占位期是 True（结果直接返回）。
+    """
+    svc = _knowledge_service
+    if svc is None:
+        return "（知识库未接入。请先在 CLI 装配 KnowledgeService 并建库后使用）"
+
     if action == "list":
-        return "（知识库未接入，暂无文档。M5 接入向量库后可用）"
+        docs = svc.list_docs()
+        if not docs:
+            return "（知识库暂无文档。可用脚本/CLI 导入文本建库）"
+        return "知识库文档:\n" + "\n".join(
+            f"- [{d['id']}] {d['title']}（{d['chunk_count']} 块）" for d in docs
+        )
     if action == "read":
-        return f"（知识库未接入，无法读取文档: {doc_id}）"
-    return (
-        "（知识库未接入，无法检索。请告知用户: 需要在设置中添加向量模型后建立知识库。"
-        f"查询: {query or ''}）"
+        try:
+            doc = svc.get_doc(int(doc_id or 0))
+        except (TypeError, ValueError):
+            return "doc_id 无效"
+        if not doc:
+            return f"（文档不存在: {doc_id}）"
+        return f"[{doc['title']}]\n{doc.get('source') or ''}"
+    # search（默认动作）
+    q = (query or "").strip()
+    if not q:
+        return "search 需要 query 参数"
+    hits = svc.search(q, top_k=3)
+    if not hits:
+        return "（检索无结果）"
+    return "检索结果:\n" + "\n\n".join(
+        _format_hit({"title": h["title"], "score": h["score"], "content": h["content"]}, i)
+        for i, h in enumerate(hits)
     )

@@ -83,15 +83,24 @@ def format_runtime_now_for_prompt(
     return f"{dt.strftime('%Y-%m-%d')} {weekday_zh} ({utc_part})"
 
 
-def build_lead_agent_system_prompt() -> str:
-    """M1 系统提示词：人格 + 当前时间注入。
+def build_lead_agent_system_prompt(
+    memory_context: str = "",
+    skills_context: str = "",
+) -> str:
+    """系统提示词：人格 + 当前时间 + （可选）记忆 / 技能段。
 
-    原版在 prompt.py 里把时间/技能/工具段拼成完整 system prompt；
-    M1 只做最小注入（回答日期问题不靠工具、靠这里的时间）。
-    M2 起在此基础上追加技能段、工具段（学原版 get_skills_prompt_section 等）。
+    M1 只有时间注入；M3 增加:
+        - memory_context: 记忆召回段落（跨会话用户事实，由 CLI 注入）
+        - skills_context: 可用技能说明（SKILL.md 列表，由 CLI 注入）
+    记忆/技能为空时对应段落不出现（提示词保持干净）。
     """
-    return (
-        "你是 AgentFlow 的助手（仿写 EvoFlow 的 M1 最小实现）。\n"
-        "请用中文简洁回答；需要准确日期/时间时，直接使用下面注入的当前时间。\n\n"
-        f"当前系统时间：{format_runtime_now_for_prompt()}"
-    )
+    parts = [
+        "你是 AgentFlow 的助手（仿写 EvoFlow 的 M3 最小实现）。",
+        "请用中文简洁回答；需要准确日期/时间时，直接使用下面注入的当前时间。",
+        f"当前系统时间：{format_runtime_now_for_prompt()}",
+    ]
+    if memory_context:
+        parts.append(memory_context)
+    if skills_context:
+        parts.append(skills_context)
+    return "\n\n".join(parts)

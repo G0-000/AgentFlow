@@ -54,5 +54,50 @@
 2. tools/middlewares 列表为空时行为 = 纯对话 Agent（M1 形态），勿改默认
 3. 系统提示词缺省走 prompt.py；直接传 system_prompt 会覆盖默认注入
 
+## ❓ Q&A / 知识点（问答自动归档区）
+
+### checkpointer 是如何注入 langgraph 的？（2026-09-30 用户提问）
+
+**链路**（注入点就在 `create_agent`）：
+
+```text
+main.py ⑤  create_sqlite_checkpointer(db_path)
+              └─ 返回 SqliteSaver（langgraph 的 SQLite 存档员，持连接）
+main.py ⑨  make_lead_agent(checkpointer=checkpointer, ...)
+              └─ 本文件 return create_agent(
+                     model=model,
+                     tools=tools or [],
+                     checkpointer=checkpointer,   ← 注入点
+                     middleware=middlewares or [],
+                     system_prompt=...,
+                 )
+              └─ langchain 内部：create_agent → langgraph 编译
+                 → 返回 CompiledStateGraph（"图"）
+                 → checkpointer 挂到图的 checkpointer 属性上
+```
+
+**"图"指什么**：`create_agent` 返回的 `CompiledStateGraph`——编译好的可执行图（模型↔工具循环）。图状态（graph state）= 运行中的 `messages` 列表 + 中间件扩展字段（如 `title`）。
+
+**注入后 langgraph 内部做什么**（checkpointer 是被动对象，图主动用它）：
+
+```text
+agent.stream(config={"configurable": {"thread_id": "abc"}})
+  │ 每执行完一步（super-step），图自动调存档员：
+  saver.put(config, checkpoint, metadata, new_versions)
+  │   → 图状态序列化 → 写 SQLite，按 thread_id 分档
+  ▼
+同一 thread_id 再跑 → 图初始化时：
+  saver.get_tuple(config)
+  │   → 按 thread_id 读回最近快照 → 填充图状态 → 上轮对话恢复
+  ▼
+继续 stream
+```
+
+**为什么不在 create_agent 里自己建 checkpointer（依赖注入）**：
+CLI 传 SQLite 版（真实持久化），测试可传内存版（InMemorySaver 跑完自动清）——同一份 agent 代码不用改。
+
+**一句话**：`create_sqlite_checkpointer(db_path)` 造存档员 → `create_agent(checkpointer=...)` 挂到图上 → langgraph 每步自动 `put`、按 `thread_id` `get_tuple`——这就是"同一 thread_id 恢复对话"的完整机制。
+
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：agent.py 头部注释 + 顶层符号。_
+_2026-09-30 追加：Q&A 归档区（checkpointer 注入机制，用户提问自动归纳）。_
