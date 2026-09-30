@@ -1,6 +1,6 @@
 <!-- ============================================================
   AgentFlow doc · doc-code 总览（代码地图 + M1 文件总目录）
-  更新时间: 2026-09-28 | 关联: 代码 /Users/main/AgentFlow/backend/packages/harness/agentflow/
+  更新时间: 2026-09-30 | 关联: 代码 /Users/main/AgentFlow/backend/packages/harness/agentflow/
   用途: 与代码目录一一对应的"设计说明 + 问题总结"文档
   维护约定: M1 文件总目录随里程碑推进持续更新（每完成一个 M，追加其文件）
 ================================================================ -->
@@ -8,9 +8,9 @@
 
 > 看代码前先读这里。每个子目录对应一个代码包（config/models/persistence/agents/tools/cli），
 > 每份域文档 = **①文件清单 ②设计说明 ③你问过的问题总结（Q&A） ④原版对照**。
-> **本页 = 总目录**：一页看清全部 39 个文件"为什么这么设计"（M1 28 + M2 11）。
+> **本页 = 总目录**：一页看清全部 52 个文件"为什么这么设计"（M1 28 + M2 11 + M3 新增 knowledge/memory/skills 三包 11 个文件）。
 
-## 1. 代码全景（agentflow/ 28 文件 · M1）
+## 1. 代码全景（agentflow/ 52 文件 · M3）
 
 ```
 backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflow）
@@ -20,6 +20,9 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 ├── persistence/  7 文件  持久化域（SQLite 唯一属主）
 ├── agents/       11 文件  Agent 域（状态/检查点/主Agent/提示词/中间件）
 ├── tools/        10 文件  工具域（分层/收集/结果存取 + 5 内置工具）
+├── knowledge/    6 文件  知识域（chunker 切分 → embedding 向量化 → service 检索）
+├── memory/       3 文件  记忆域（consolidate 合并 → facade 门面）
+├── skills/       2 文件  技能域（loader 技能加载）
 └── cli/          2 文件  命令行入口（对话循环）
 ```
 
@@ -118,6 +121,16 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 
 ### cli/（2）
 - [main.py](cli/main.md) · [__init__.py](cli/__init__.md)
+
+### knowledge/（6）
+- [chunker.py](knowledge/chunker.md) · [service.py](knowledge/service.md) · [__init__.py](knowledge/__init__.md)
+- embedding/: [base.py](knowledge/embedding/base.md) · [registry.py](knowledge/embedding/registry.md) · [__init__.py](knowledge/embedding/__init__.md)
+
+### memory/（3）
+- [consolidate.py](memory/consolidate.md) · [facade.py](memory/facade.md) · [__init__.py](memory/__init__.md)
+
+### skills/（2）
+- [loader.py](skills/loader.md) · [__init__.py](skills/__init__.md)
 
 ### 根（1）
 - [__init__.py](__init__.md)
