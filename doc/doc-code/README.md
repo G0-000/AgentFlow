@@ -1,28 +1,32 @@
 <!-- ============================================================
   AgentFlow doc · doc-code 总览（代码地图 + M1 文件总目录）
-  更新时间: 2026-09-30 | 关联: 代码 /Users/main/AgentFlow/backend/packages/harness/agentflow/
+  更新时间: 2026-10-01（M4 追加 subagents/sandbox 两包 + 新工具）
+  关联: 代码 /Users/main/AgentFlow/backend/packages/harness/agentflow/
   用途: 与代码目录一一对应的"设计说明 + 问题总结"文档
   维护约定: M1 文件总目录随里程碑推进持续更新（每完成一个 M，追加其文件）
 ================================================================ -->
 # doc-code —— 代码结构文档（与 agentflow/ 目录一一对应）
 
-> 看代码前先读这里。每个子目录对应一个代码包（config/models/persistence/agents/tools/cli），
+> 看代码前先读这里。每个子目录对应一个代码包（config/models/persistence/agents/tools/cli/subagents/sandbox），
 > 每份域文档 = **①文件清单 ②设计说明 ③你问过的问题总结（Q&A） ④原版对照**。
-> **本页 = 总目录**：一页看清全部 52 个文件"为什么这么设计"（M1 28 + M2 11 + M3 新增 knowledge/memory/skills 三包 11 个文件）。
+> **本页 = 总目录**：一页看清全部 65 个文件"为什么这么设计"（M1 28 + M2 11 + M3 三包 11 个 + M4 子代理/沙箱两包 13 个）。
+> **tests/（第 3 节）**：5 个测试文件的用例级文档（M4 新增，对应验收点 1-4 + 回归）。
 
-## 1. 代码全景（agentflow/ 52 文件 · M3）
+## 1. 代码全景（agentflow/ 65 文件 · M4）
 
 ```
 backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflow）
 ├── __init__.py                                ← 包入口（__version__）
 ├── config/       5 文件  配置域（yaml → 类型化对象）
 ├── models/       3 文件  模型域（配置 → ChatOpenAI）
-├── persistence/  7 文件  持久化域（SQLite 唯一属主）
+├── persistence/  8 文件  持久化域（SQLite 唯一属主，含 sandbox_audit 审计表）
 ├── agents/       11 文件  Agent 域（状态/检查点/主Agent/提示词/中间件）
-├── tools/        10 文件  工具域（分层/收集/结果存取 + 5 内置工具）
+├── tools/        13 文件  工具域（分层/收集/结果存取 + 9 内置工具）
 ├── knowledge/    6 文件  知识域（chunker 切分 → embedding 向量化 → service 检索）
 ├── memory/       3 文件  记忆域（consolidate 合并 → facade 门面）
 ├── skills/       2 文件  技能域（loader 技能加载）
+├── subagents/    7 文件  子代理域（M4：config/registry/executor + builtins）
+├── sandbox/      6 文件  沙箱域（M4：ABC/Provider/Noop/Local 目录隔离）
 └── cli/          2 文件  命令行入口（对话循环）
 ```
 
@@ -48,7 +52,7 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 | `factory.py` | `create_chat_model()` 模型工厂 | 工厂模式：配置 → 模型实例，调用方不关心具体供应商 | provider 白名单分发；默认 openai-compatible | **Q1-3**（为什么全走 OpenAI 兼容） |
 | `patched_openai.py` | 供应商适配层（M1 直接返回标准 ChatOpenAI） | **扩展点预留**：不同供应商 extra body/参数别名/流式格式有差异，需要收敛层（原版同款设计） | M6 多供应商时在此补 patch | — |
 
-### persistence/ —— 持久化域（7 文件 · SQLite 唯一属主）
+### persistence/ —— 持久化域（8 文件 · SQLite 唯一属主）
 
 | 文件 | 职责 | 为什么这样设计 | 设计需求 | 涉及问题 |
 |---|---|---|---|---|
@@ -58,6 +62,7 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 | `bootstrap.py` | `init_db()` 建表入口 | 启动时幂等建表（CREATE IF NOT EXISTS） | CLI/测试统一入口 | — |
 | `repositories.py` | `BaseRepository` 抽象基类 | 基类统一 `_execute`（SQL+commit），子类只实现 4 方法 | 表多时避免重复 SQL | **P-008**（insert→create 命名对齐） |
 | `session_repositories.py` | `SessionRepository`（会话+消息 repo） | 业务记录与图状态（checkpoint）**两套存储**分开 | add_message/touch 供 CLI 与 M7 UI 用 | **Q3**（为什么先存 user 再跑图） |
+| `sandbox_audit_repositories.py` | `SandboxAuditRepository`（沙箱审计 repo） | **M4 新增**：每次沙箱操作（放行/拦截）落库，可追溯 | record/query/count + BaseRepository 契约 | — |
 | `timestamps.py` | `now_utc_iso()` 统一时间戳 | 全库统一 UTC ISO 字符串，**避免各模块自己格式化**（时区/格式漂移） | 时间列统一口径 | — |
 
 ### agents/ —— Agent 域（8 文件 · 核心）
@@ -87,6 +92,9 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 | `builtins/knowledge_tool.py` | 知识库 search/read/list | **M2 新增**：照原版接口；未接 RAG（M5 接向量库） | _format_hit 格式化 | — |
 | `builtins/plan_tool.py` | 计划 get/update/save | **M2 新增**：照原版计划思想，M2 内存版 | 会话内计划 | — |
 | `builtins/fetch_url_tool.py` | 网页抓取 URL→文本 | **M2 新增**：学原版 web_fetch 接口，requests 简化版 | 静态页面 | — |
+| `builtins/terminal_tool.py` | 沙箱终端工具（terminal_run） | **M4 新增**：一切宿主命令必须走沙箱（Noop 拒绝/Local 目录隔离）+ 审计 | 单命令 + 超时；不提供绕过沙箱路径 | — |
+| `builtins/file_tools.py` | 沙箱文件工具（read_file/write_file） | **M4 新增**：文件读写统一走沙箱接口，越界由 _resolve 拦截 + 审计 | 路径必须经沙箱（不能直接 open 宿主路径） | — |
+| `builtins/dispatch_tool.py` | 子代理派发工具（dispatch_subagents） | **M4 新增**：任务列表 → 并行派发 ≤3 → 按序回传；configure_dispatch_service 注入 | max_parallel 硬上限 3；未配置给友好提示 | — |
 
 ### cli/ —— 命令行入口（2 文件）
 
@@ -131,6 +139,20 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 
 ### skills/（2）
 - [loader.py](skills/loader.md) · [__init__.py](skills/__init__.md)
+
+### subagents/（7 · M4）
+- [config.py](subagents/config.md) · [registry.py](subagents/registry.md) · [executor.py](subagents/executor.md) · [__init__.py](subagents/__init__.md)
+- builtins/: [general_purpose.py](subagents/builtins/general_purpose.md) · [bash_agent.py](subagents/builtins/bash_agent.md) · [__init__.py](subagents/builtins/__init__.md)
+
+### sandbox/（6 · M4）
+- [sandbox.py](sandbox/sandbox.md) · [sandbox_provider.py](sandbox/sandbox_provider.md) · [noop.py](sandbox/noop.md) · [local.py](sandbox/local.md) · [exceptions.py](sandbox/exceptions.md) · [__init__.py](sandbox/__init__.md)
+
+### tests/（5 · M4 测试文档，对应用例级验收）
+- [test_subagent_registry.py](tests/test_subagent_registry.md)（5 用例 → 验收点 1 注册）
+- [test_subagent_parallel.py](tests/test_subagent_parallel.md)（3 用例 → 验收点 2/3 并行 + 按序）
+- [test_sandbox_guard.py](tests/test_sandbox_guard.md)（7 用例 → 验收点 4 隔离 + 审计）
+- [test_subagent_retry.py](tests/test_subagent_retry.md)（4 用例 → 重试语义）
+- [test_tool_catalog.py](tests/test_tool_catalog.md)（6 用例 → M2 工具目录 + M4 增量）
 
 ### 根（1）
 - [__init__.py](__init__.md)

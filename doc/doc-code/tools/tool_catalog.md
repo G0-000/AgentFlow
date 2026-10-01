@@ -32,6 +32,16 @@
 └────────────────────────────────────────────────────────────┘
 ```
 
+**M4 追加（TOOL_TIER_MAP 从 5 条扩到 9 条）**：
+
+```text
+│ TOOL_TIER_MAP（M4 现行）：                                  │
+│   ask_clarification=runtime / todo=core /                   │
+│   knowledge=workspace / plan=plan / fetch_url=workspace     │
+│   terminal_run=workspace / read_file=workspace /            │
+│   write_file=workspace / dispatch_subagents=core（新增）    │
+```
+
 ## 📤 关键导出
 
 **函数**
@@ -41,6 +51,10 @@
 - `tool_tier_label_zh()`
 - `enrich_tool_catalog_fields()`
 - `tier_sort_key()`
+
+**常量（M4 补充说明）**
+
+- `TOOL_TIER_MAP`：M4 由 5 条扩到 9 条——新增 `terminal_run`/`read_file`/`write_file`=workspace、`dispatch_subagents`=core（其余 ToolTier / TOOL_TIER_ORDER / TOOL_TIER_LABELS_ZH 未变）。
 
 ## 💡 设计思想
 
@@ -177,6 +191,18 @@ TOOL_TIER_MAP: dict[str, ToolTier] = {
 
 **整块解析**：原版靠 `intent_tool_profile` 动态查档位，M2 工具只有 5 个，直接硬编码成 dict——**新增工具必须在这里追加一行**，否则 `resolve_tool_tier` 查不到就兜底 optional（排到最后，风险点 4）。注意 key 是工具注册名（小写，与 `normalize_tool_name` 归一化后对齐）。
 
+### 块 3-M4：`TOOL_TIER_MAP` 新增 4 条（M4 追加）
+
+```python
+    # M4 新增：沙箱终端/文件（工作区场景）+ 子代理派发（核心编排）
+    "terminal_run": "workspace",
+    "read_file": "workspace",
+    "write_file": "workspace",
+    "dispatch_subagents": "core",
+```
+
+**整块解析**（M4 增量）：紧接块 3 的 `fetch_url` 一行之后追加 4 个新工具档位——terminal_run / read_file / write_file 归 **workspace（工作区）**：它们是操作项目工作区（沙箱目录）的工具，与 knowledge/fetch_url 同档；`dispatch_subagents` 归 **core（日常常驻）**：子代理派发是编排核心能力，与 todo 同档，排序时排在 workspace 之前。注释 `# M4 新增：…` 直接写在字典内。key 同样是小写注册名，过 `normalize_tool_name` 后命中；未登记才会兜底 optional。
+
 ### 块 4：归一化 + 查档 + 中文标签三个小函数
 
 ```python
@@ -237,6 +263,10 @@ A: tools.py 的 _finalize_tool_catalog；CLI 启动信息里按 tier 顺序列�
 
 A: resolve_tool_tier 兜底 optional，会排到工具列表最后，但不报错
 
+**Q: M4 新工具 dispatch_subagents 为什么定 core 而不是 workspace？（2026-10-01 用户提问）**
+
+A: 档位语义不同——terminal_run/read_file/write_file 是"操作工作区（沙箱目录）"的工具，归 workspace；dispatch_subagents 是把子任务拆给子代理并行执行的**编排核心**能力，归 core（日常常驻，与 todo 同档）。排序权重上 core（下标 1）比 workspace（下标 2）更靠前，工具列表里派发工具会排在工作区工具之前。
+
 ## ⚠️ 风险点
 
 1. TOOL_TIER_ORDER 元组顺序直接决定工具优先级，禁止随意调整顺序
@@ -247,3 +277,4 @@ A: resolve_tool_tier 兜底 optional，会排到工具列表最后，但不报�
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：tool_catalog.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_

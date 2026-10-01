@@ -10,10 +10,15 @@ from agentflow.tools.tool_catalog import (
 from agentflow.tools.tools import get_available_tools, get_builtin_tools
 
 
-def test_get_builtin_tools_has_five():
-    """M2 至少有 5 个内置工具。"""
+def test_get_builtin_tools_has_all():
+    """M2 5 个基础工具 + M4 新增 4 个 = 9 个内置工具。"""
     tools = list(get_builtin_tools())
-    assert len(tools) == 5
+    assert len(tools) == 9
+    names = {t.name for t in tools}
+    # M2 基础 5 个
+    assert {"ask_clarification", "todo", "knowledge", "plan", "fetch_url"} <= names
+    # M4 新增：沙箱终端/文件 + 子代理派发
+    assert {"terminal_run", "read_file", "write_file", "dispatch_subagents"} <= names
 
 
 def test_tool_names_unique():
@@ -38,6 +43,11 @@ def test_resolve_tool_tier_known():
     assert resolve_tool_tier("knowledge") == "workspace"
     assert resolve_tool_tier("plan") == "plan"
     assert resolve_tool_tier("fetch_url") == "workspace"
+    # M4 新增工具分层
+    assert resolve_tool_tier("terminal_run") == "workspace"
+    assert resolve_tool_tier("read_file") == "workspace"
+    assert resolve_tool_tier("write_file") == "workspace"
+    assert resolve_tool_tier("dispatch_subagents") == "core"
 
 
 def test_resolve_tool_tier_unknown_defaults_optional():

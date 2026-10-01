@@ -35,6 +35,17 @@
 └────────────────────────────────────────────────────────────┘
 ```
 
+**M4 追加（get_builtin_tools 从 5 个扩到 9 个）**：
+
+```text
+│ get_builtin_tools() 返回元组（M4 = 9 个）：                 │
+│   M2 旧 5 个：ask_clarification_tool / todo_tool /          │
+│               knowledge_tool / plan_tool / fetch_url_tool   │
+│   M4 新增 4 个：terminal_run / read_file / write_file /    │
+│                 dispatch_subagents                          │
+│   （函数内 import 同步扩到 9 行；延迟加载机制不变）         │
+```
+
 ## 📤 关键导出
 
 **函数**
@@ -50,6 +61,9 @@
    仅第一次调用 get_builtin_tools 时加载，后续直接复用缓存。
 3. M2 精简改造：移除退役工具表、工具别名、社区工具、沙箱相关逻辑，
    只保留核心收集流程。
+4. M4 增量：收集范围从 5 个扩到 9 个——新增 terminal_run / read_file / write_file
+   （走沙箱的工作区工具）与 dispatch_subagents（子代理派发）；延迟加载、去重、
+   按 tier 排序的管线本身一行未改，只是函数内 import 与返回元组多了 4 项。
 
 ## 🎯 实用场景
 
@@ -57,6 +71,8 @@
 2. 工具开发回归：新增工具后测试去重与 tier 排序是否生效
 3. 性能敏感场景：lru_cache 延迟加载避免启动时 import 全部工具模块（requests 等重依赖）
 4. 原版对齐演示：对照 EvoFlow 原版 tools.py（566 行）理解"收集-去重-排序"管线
+5. M4 沙箱/子代理装配：CLI main() 拿到 9 个工具后，再把沙箱 provider、审计 repo、
+   派发服务（configure_dispatch_service）分别注入 terminal_run / file_tools / dispatch_subagents
 
 ## 📊 顺序执行链流程图（Agent 启动装配工具时）
 
@@ -108,6 +124,17 @@ flowchart TD
     J --> K["返回有序 list[BaseTool]<br/>挂载给 create_agent(tools=…)"]
 ```
 
+**M4 追加：收集与返回元组从 5 项扩到 9 项（管线不变）**
+
+```text
+get_builtin_tools() 函数内 import（M4 现行）：
+  ask_clarification_tool / todo_tool / knowledge_tool /
+  plan_tool / fetch_url_tool            ← M2 旧 5 个
+  terminal_run / read_file / write_file ← M4 沙箱工作区工具
+  dispatch_subagents                    ← M4 子代理派发
+返回元组顺序同上；后续 _finalize_tool_catalog 去重 + tier 排序逻辑不变。
+```
+
 ## 🧩 代码解析（成块对照 tools.py）
 
 > 读法：每块先贴**完整代码**，再看块下方的整块解析。代码与文件一致，仅省略头部规范注释。
@@ -152,6 +179,40 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
 ```
 
 **整块解析**：两个机制叠加——① **函数内 import**：5 个工具模块的 import 写在函数体里，只有第一次调用本函数时才真正加载（requests 等重依赖不进启动路径）；② `@lru_cache(maxsize=1)`：本函数无参数，`maxsize=1` 缓存唯一返回值，之后每次调用直接命中缓存，不重复 import、不重复构造工具对象。返回的是**工具对象元组**（已 @tool 装饰好），顺序是"收集顺序"（clarification→todo→knowledge→plan→fetch_url），后续由 `_finalize_tool_catalog` 去重排序。
+
+### 块 2-M4：`get_builtin_tools` 现行版（9 个工具）—— M4 追加
+
+```python
+@lru_cache(maxsize=1)
+def get_builtin_tools() -> tuple[BaseTool, ...]:
+    """收集全部内置工具（延迟加载：函数内 import，照原版）。
+
+    为什么延迟：5 个工具模块含 requests 等重量依赖，
+    全部模块级 import 会拖慢 CLI 启动；lru_cache 保证只加载一次。
+    """
+    from agentflow.tools.builtins.clarification_tool import ask_clarification_tool
+    from agentflow.tools.builtins.dispatch_tool import dispatch_subagents
+    from agentflow.tools.builtins.fetch_url_tool import fetch_url_tool
+    from agentflow.tools.builtins.file_tools import read_file, write_file
+    from agentflow.tools.builtins.knowledge_tool import knowledge_tool
+    from agentflow.tools.builtins.plan_tool import plan_tool
+    from agentflow.tools.builtins.terminal_tool import terminal_run
+    from agentflow.tools.builtins.todo_tool import todo_tool
+
+    return (
+        ask_clarification_tool,
+        todo_tool,
+        knowledge_tool,
+        plan_tool,
+        fetch_url_tool,
+        terminal_run,
+        read_file,
+        write_file,
+        dispatch_subagents,
+    )
+```
+
+**整块解析**（M4 增量）：函数签名、`@lru_cache(maxsize=1)`、函数内 import 的延迟加载机制与块 2 完全一致，变化只有两处——① import 从 5 行扩到 8 行（`dispatch_tool.dispatch_subagents`、`file_tools.read_file/write_file` 一次导入两个、`terminal_tool.terminal_run`）；② 返回元组从 5 项扩到 9 项，末尾追加 `terminal_run, read_file, write_file, dispatch_subagents`。这 4 个新工具走沙箱/子代理能力，自身依赖（沙箱 provider、审计 repo、派发服务）由 CLI main() 在装配期通过 configure 函数注入，本收集模块不感知。
 
 ### 块 3：`_finalize_tool_catalog` —— 按 name 去重 + 按 tier 排序
 
@@ -238,6 +299,10 @@ def get_builtin_tools():
 
 **⚠️ 副作用（风险点 2）**：缓存的是工具对象——**改了工具代码后不重启进程不生效**（拿到的还是旧对象）。调试期改工具记得重启，或 `get_builtin_tools.cache_clear()`。
 
+**Q: terminal_run / read_file 走沙箱，会不会影响 M1-M3 已有工具？（2026-10-01 用户提问）**
+
+A: 不会。它们是 M4 **全新独立工具**，与 M2 的 clarification/todo/knowledge/plan/fetch_url 没有共享代码或共用句柄：沙箱拦截只发生在 terminal_run / read_file / write_file 内部调用 `LocalSandboxProvider` 的路径上，M1-M3 工具的执行路径一行未改。这 4 个新工具只是在 `get_builtin_tools` 返回元组里多挂了 4 项，再由 `_finalize_tool_catalog` 统一去重 + 按 tier 排序（terminal_run/read_file/write_file=workspace，dispatch_subagents=core）。
+
 ## ⚠️ 风险点
 
 1. TOOL_TIER_ORDER 元组顺序直接影响工具排序结果，不可随意调整
@@ -248,3 +313,4 @@ def get_builtin_tools():
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：tools.py 头部注释 + 顶层符号。_
 _2026-09-30 追加：Q&A 归档区（"延迟收集 lru_cache"详解：延迟=函数内 import、缓存=只加载一次、副作用=改代码要清缓存，用户提问自动归纳）。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_

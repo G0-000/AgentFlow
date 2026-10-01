@@ -83,11 +83,27 @@ from agentflow.models.factory import create_chat_model
 from agentflow.persistence.bootstrap import init_db
 from agentflow.persistence.knowledge_repositories import KnowledgeRepository
 from agentflow.persistence.memory_repositories import MemoryRepository
+from agentflow.persistence.sandbox_audit_repositories import SandboxAuditRepository
 from agentflow.persistence.session_repositories import SessionRepository
+
+# M4 域：沙箱（目录隔离）/ 子代理注册表 / 派发与审计注入
+from agentflow.sandbox import (
+    LocalSandboxProvider,
+    get_sandbox_provider,
+    set_sandbox_provider,
+)
 
 # skills 加载 + knowledge 工具注入（M3）
 from agentflow.skills.loader import build_skills_prompt
+from agentflow.subagents import get_subagent_names
+from agentflow.tools.builtins.dispatch_tool import configure_dispatch_service
+from agentflow.tools.builtins.file_tools import (
+    configure_sandbox_audit_repository as configure_file_audit,
+)
 from agentflow.tools.builtins.knowledge_tool import configure_knowledge_service
+from agentflow.tools.builtins.terminal_tool import (
+    configure_sandbox_audit_repository as configure_terminal_audit,
+)
 
 # 工具域（M2）：工具收集 + 结果存取
 from agentflow.tools.tools import get_available_tools
@@ -155,8 +171,21 @@ def main() -> None:
     # ⑤ 检查点：图状态 → SQLite（同一 thread_id 恢复对话）
     checkpointer = create_sqlite_checkpointer(db_path)
 
-    # ⑥ 工具（M2）：工具目录全量工具（5 个）
+    # ⑥ 工具（M2→M4）：工具目录全量工具（9 个，含沙箱终端/文件/子代理派发）
     tools = get_available_tools()
+
+    # M4：沙箱装配——本地目录沙箱（子代理/终端操作落在项目 .sandbox 内，
+    # **1 进程 = 1 provider = 1 沙箱 = 1 根目录**。多会话多沙箱（按 thread_id 区分目录）是 `acquire(thread_id)` 参数预留的方向，M4 未实现。
+    #     宿主目录访问被 LocalSandbox._resolve 拦截；全程写审计）
+    sandbox_root = project_root / ".sandbox"
+    # ← 沙箱单例
+    # 注入沙箱
+    set_sandbox_provider(LocalSandboxProvider(sandbox_root))
+    # 审计追踪 repo 注入：
+    sandbox_audit = SandboxAuditRepository(db_path=db_path)
+    # 挂到 terminal_run 与 read_file/write_file 工具（模块级句柄），每次沙箱操作写一行 sandbox_audit
+    configure_terminal_audit(sandbox_audit)
+    configure_file_audit(sandbox_audit)
 
     # ⑦ 中间件（M2）：标题 + 线程数据目录（挂到 Agent 上，横向能力）
     middlewares = [TitleMiddleware(), ThreadDataMiddleware()]
@@ -164,11 +193,16 @@ def main() -> None:
     # ⑧ 模型 + M3 记忆/知识装配 + ⑨ Agent（含记忆/技能注入）
     model = create_chat_model(cfg.models.chat)
 
+    # M4：派发服务注入（dispatch_subagents 工具用：子代理工具集 + 父模型） 把全量工具集 + 父模型塞进
+    configure_dispatch_service(tools, model)
+
     # M3：记忆门面（跨会话用户事实）与知识库服务（分块/向量/检索）
     #     用 db_path 模式（P-018）：LangGraph 工具在后台线程跑 SQL，
     #     repo 按线程建连接，避免 SQLite 跨线程报错
     memories = MemoryFacade(MemoryRepository(db_path=db_path))
-    knowledge = KnowledgeService(KnowledgeRepository(db_path=db_path), cfg.models.embedding)
+    knowledge = KnowledgeService(
+        KnowledgeRepository(db_path=db_path), cfg.models.embedding
+    )
     configure_knowledge_service(knowledge)  # 挂到 knowledge 工具上（模块级句柄）
 
     # M3：启动时注入"已记住的事实 + 可用技能"到系统提示词
@@ -199,7 +233,12 @@ def main() -> None:
         f"模型: {cfg.models.chat.model}（provider={cfg.models.chat.provider} @ {cfg.models.chat.base_url}）"
     )
     print(f"工具: {len(tools)} 个（{', '.join(t.name for t in tools)}）")
-    print(f"记忆: {memories.count()} 条 | 知识库: {len(knowledge.list_docs())} 文档")  # M3
+    print(
+        f"记忆: {memories.count()} 条 | 知识库: {len(knowledge.list_docs())} 文档"
+    )  # M3
+    print(f"沙箱: {type(get_sandbox_provider()).__name__}（{sandbox_root}）")  # M4
+    print(f"子代理: {', '.join(get_subagent_names())}（并行 ≤3）")  # M4
+    print(f"审计: {sandbox_audit.count()} 条")  # M4
     print(f"会话: {thread_id}（{reuse}；--thread {thread_id} 可继续此会话）")
     print(f"数据: {db_path}")
     print("输入 exit 退出\n")

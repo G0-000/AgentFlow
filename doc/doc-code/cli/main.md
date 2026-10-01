@@ -19,6 +19,7 @@
   - [块 3：_iter_chunk_messages() —— 从流式块里捞新消息](#块-3_iter_chunk_messages--从流式块里捞新消息)
   - [块 4：main() 装配段（①-⑫）](#块-4main-装配段-①-⑫)
   - [块 5：main() 对话循环（⑬）](#块-5main-对话循环-⑬)
+  - [块 4-M4：M4 沙箱/审计/派发装配段](#块-4-m4m4-沙箱审计派发装配段)
 - [📖 知识点](#📖-知识点)
   - [1. argparse —— 命令行参数解析](#1-argparse--命令行参数解析)
   - [2. stream() 流式 vs invoke() 一次性](#2-stream-流式-vs-invoke-一次性)
@@ -49,6 +50,15 @@
 │              → 逐块打印回复 → 存消息记录 → 首轮标题落库       │
 │              → 循环直到 exit                                 │
 └──────────────────────────────────────────────────────────────┘
+```
+
+**M4 追加（装配段新增沙箱/审计/派发，启动信息新增 3 行）**：
+
+```text
+│   ├─ set_sandbox_provider(LocalSandboxProvider(项目/.sandbox)) ← M4
+│   ├─ SandboxAuditRepository(db_path) → 注入 terminal/file 工具 ← M4
+│   ├─ configure_dispatch_service(tools, model)  ← 派发服务注入   │
+│   └─ 启动信息新增：沙箱: … / 子代理: …（并行 ≤3）/ 审计: N 条   │
 ```
 
 ## 📤 关键导出
@@ -216,6 +226,34 @@ flowchart TD
 
 > VSCode 预览 Mermaid 需装插件（如 Markdown Preview Mermaid Support）；GitHub / 飞书直接渲染。
 
+**M4 追加：装配链在「收集工具」与「中间件」之间插入沙箱/审计/派发三步**
+
+```text
+get_available_tools() → 9 个工具（M4）
+│
+▼
+set_sandbox_provider(LocalSandboxProvider(project_root/.sandbox))
+│                                        ← 子代理/终端操作落在项目 .sandbox 内
+▼
+SandboxAuditRepository(db_path)
+├─ configure_terminal_audit(repo)         ← terminal_run 写审计
+└─ configure_file_audit(repo)             ← read_file/write_file 写审计
+│
+▼
+create_chat_model() → model
+│
+▼
+configure_dispatch_service(tools, model)  ← dispatch_subagents 用的工具集+父模型
+│
+▼
+（继续 ⑦ 中间件 … ⑨ make_lead_agent）
+
+启动信息新增三行（M4）：
+  沙箱: LocalSandboxProvider（…/.sandbox）
+  子代理: bash, general-purpose（并行 ≤3）
+  审计: N 条
+```
+
 ### 2. 持久化数据流（thread_id 是钥匙）
 
 **ASCII 版（顺序执行链）**：
@@ -340,58 +378,90 @@ def _iter_chunk_messages(chunk: dict) -> list:
 ```python
 def main() -> None:
     """CLI 入口：装配所有组件，进入对话循环。"""
-    args = _parse_args()                            # ① 解析命令行：--thread 复用会话
+    args = _parse_args()  # ① 解析命令行：--thread 复用会话
 
+    # ② 密钥：加载项目根 .env（AGENTFLOW_ROOT 向上找）
+    #    config.yaml 里 ${DEEPSEEK_API_KEY} 由 models_yaml 在此之后展开
     project_root = Path(__file__).resolve().parents[5]
-    load_dotenv(project_root / ".env")              # ② 加载密钥（不进代码/yaml）
+    load_dotenv(project_root / ".env")
 
-    cfg = load_config(str(project_root / "config.yaml"))   # ③ 读配置
+    # ③ 配置：config.yaml → AppConfig（路径/日志/模型）
+    #    对齐原版：固定用项目根 config.yaml（Path(__file__).parents[N] 向上找），
+    #    不依赖"从哪个目录启动"——否则在 backend/ 下跑会找不到根目录的 config.yaml
+    cfg = load_config(str(project_root / "config.yaml"))
     if cfg.models is None or not cfg.models.chat.api_key:
         print("缺少模型配置：请检查 config.yaml 的 models 段，并在 .env 填写 API key")
-        return                                      # 缺 key 直接退出，不空跑
+        return
 
+    # ④ 数据库：建表 + 连接（sessions/session_messages + checkpoint 表）
     db_path = default_db_path()
-    conn = init_db(db_path)                         # ④ 建表 + 连接
+    conn = init_db(db_path)
 
-    checkpointer = create_sqlite_checkpointer(db_path)     # ⑤ 图状态检查点（记忆体）
+    # ⑤ 检查点：图状态 → SQLite（同一 thread_id 恢复对话）
+    checkpointer = create_sqlite_checkpointer(db_path)
 
-    tools = get_available_tools()                   # ⑥ 收集 5 个内置工具（M2）
+    # ⑥ 工具（M2→M4）：工具目录全量工具（9 个，含沙箱终端/文件/子代理派发）
+    tools = get_available_tools()
 
-    middlewares = [TitleMiddleware(), ThreadDataMiddleware()]  # ⑦ 中间件（M2）
+    # M4：沙箱装配——本地目录沙箱（子代理/终端操作落在项目 .sandbox 内，
+    #     宿主目录访问被 LocalSandbox._resolve 拦截；全程写审计）
+    sandbox_root = project_root / ".sandbox"
+    set_sandbox_provider(LocalSandboxProvider(sandbox_root))
+    sandbox_audit = SandboxAuditRepository(db_path=db_path)
+    configure_terminal_audit(sandbox_audit)
+    configure_file_audit(sandbox_audit)
 
-    model = create_chat_model(cfg.models.chat)      # ⑧ 模型工厂 → ChatOpenAI
+    # ⑦ 中间件（M2）：标题 + 线程数据目录（挂到 Agent 上，横向能力）
+    middlewares = [TitleMiddleware(), ThreadDataMiddleware()]
 
-    # M3：记忆门面 + 知识库服务（db_path 线程安全模式，P-018）
+    # ⑧ 模型 + M3 记忆/知识装配 + ⑨ Agent（含记忆/技能注入）
+    model = create_chat_model(cfg.models.chat)
+
+    # M4：派发服务注入（dispatch_subagents 工具用：子代理工具集 + 父模型）
+    configure_dispatch_service(tools, model)
+
+    # M3：记忆门面（跨会话用户事实）与知识库服务（分块/向量/检索）
+    #     用 db_path 模式（P-018）：LangGraph 工具在后台线程跑 SQL，
+    #     repo 按线程建连接，避免 SQLite 跨线程报错
     memories = MemoryFacade(MemoryRepository(db_path=db_path))
     knowledge = KnowledgeService(KnowledgeRepository(db_path=db_path), cfg.models.embedding)
-    configure_knowledge_service(knowledge)          # 把服务挂到 knowledge 工具上
+    configure_knowledge_service(knowledge)  # 挂到 knowledge 工具上（模块级句柄）
 
     # M3：启动时注入"已记住的事实 + 可用技能"到系统提示词
-    memory_ctx = memories.recall(limit=10)          # 跨会话召回（新会话也记得）
+    #     （记忆随对话增长，新会话启动时读取最新快照——跨会话记住的入口）
+    memory_ctx = memories.recall(limit=10)
     skills_ctx = build_skills_prompt()
     system_prompt = build_lead_agent_system_prompt(memory_ctx, skills_ctx)
 
-    agent = make_lead_agent(                        # ⑨ 编译图（模型↔工具循环）
-        model=model, checkpointer=checkpointer,
-        tools=tools, middlewares=middlewares,
-        system_prompt=system_prompt,                # 记忆/技能随系统提示注入
+    agent = make_lead_agent(
+        model=model,
+        checkpointer=checkpointer,
+        tools=tools,
+        middlewares=middlewares,
+        system_prompt=system_prompt,
     )
 
-    sessions = SessionRepository(conn)              # ⑩ 会话业务记录 repo
+    # ⑩ 会话记录 repo（业务记录：会话 + 明文消息）
+    sessions = SessionRepository(conn)
 
-    thread_id = args.thread or _generate_thread_id()  # ⑪ 有传复用、没传新建
-    sessions.create(thread_id)                      #    幂等建会话行
+    # ⑪ 确定 thread_id（复用 or 新建），并保证会话行存在
+    thread_id = args.thread or _generate_thread_id()
+    sessions.create(thread_id)
 
+    # ⑫ 启动信息：让控制台一眼看清"用的哪个模型 / 供应商 / 会话 / 数据 / 工具"
+    #    （需求：之前只显示会话 ID 太少；模型信息对调试很关键，P-014/015/016 都要靠它）
     reuse = "续用历史会话" if args.thread else "新会话"
     print(
         f"模型: {cfg.models.chat.model}（provider={cfg.models.chat.provider} @ {cfg.models.chat.base_url}）"
     )
     print(f"工具: {len(tools)} 个（{', '.join(t.name for t in tools)}）")
     print(f"记忆: {memories.count()} 条 | 知识库: {len(knowledge.list_docs())} 文档")  # M3
+    print(f"沙箱: {type(get_sandbox_provider()).__name__}（{sandbox_root}）")  # M4
+    print(f"子代理: {', '.join(get_subagent_names())}（并行 ≤3）")  # M4
+    print(f"审计: {sandbox_audit.count()} 条")  # M4
     print(f"会话: {thread_id}（{reuse}；--thread {thread_id} 可继续此会话）")
-    print(f"数据: {db_path}")                       # ⑫ 启动信息（调试 P-014/015/016）
-    print("输入 exit 退出\n")
-```
+    print(f"数据: {db_path}")
+    print("输入 exit 退出\n")```
 
 **整块解析**：装配段只有一件事——**把零件造齐、接好，不干业务**。读法按"数据依赖"走：
 ①-③ 先有命令行参数、密钥、配置 → ④⑤ 建库和检查点（持久化底座）→ ⑥⑦ 工具和中间件（Agent 的"手"和横切能力）→ ⑧ 模型 + **M3 记忆/知识装配**（`MemoryFacade` 管用户事实、`KnowledgeService` 管知识库、`configure_knowledge_service` 挂到 knowledge 工具）→ ⑨ Agent（**系统提示注入记忆召回 + 技能列表**——跨会话记住的入口）→ ⑩⑪ 会话 repo 和 thread_id（业务记录 + 持久化钥匙）→ ⑫ 打印启动信息（模型/工具/会话/数据/**记忆条数/知识文档数**，一眼看清状态，限流/流式问题第一时间定位到供应商）。
@@ -401,43 +471,54 @@ def main() -> None:
 ### 块 5：`main()` 对话循环（⑬，main 内部片段）
 
 ```python
-    first_turn = True                               # 首轮标记（标题只做一次）
+    first_turn = True
     while True:
         try:
-            user_input = input("你 > ").strip()     # 读一行输入，去首尾空白
-        except (EOFError, KeyboardInterrupt):       # Ctrl-D / Ctrl-C：正常退出
+            user_input = input("你 > ").strip()
+        except (EOFError, KeyboardInterrupt):
             print("\n再见")
             break
-        if not user_input:                          # 空输入 → 继续等
+        if not user_input:
             continue
-        if user_input.lower() in ("exit", "quit"):  # 退出词（大小写不敏感）
+        if user_input.lower() in ("exit", "quit"):
             print("再见")
             break
 
-        sessions.add_message(thread_id, "user", user_input)   # ① 先存用户消息
-        memories.remember(thread_id, "user", user_input)      # ①b M3：沉淀记忆（规则提取，静默落库）
+        # 存用户消息（业务记录）
+        sessions.add_message(thread_id, "user", user_input)
 
-        print("Agent > ", end="", flush=True)       # ② 打印前缀，立即显示
+        # M3：沉淀记忆（规则提取用户事实，静默落库；新会话启动时自动注入）
+        memories.remember(thread_id, "user", user_input)
+
+        # 跑图：LangGraph 内部循环（模型→工具→模型），逐块流式回传
+        print("Agent > ", end="", flush=True)
         full_response = ""
         try:
-            for chunk in agent.stream(              # ③ 流式跑图（逐块产出）
+            for chunk in agent.stream(
                 {"messages": [{"role": "user", "content": user_input}]},
                 config={"configurable": {"thread_id": thread_id}},  # 持久化维度
             ):
-                for msg in _iter_chunk_messages(chunk):   # 挖出新消息
+                # chunk 是节点输出字典；取 messages 里新增的 assistant 文本
+                # （结构可能是 {'model': {...}} 嵌套，用 _iter_chunk_messages 兼容）
+                for msg in _iter_chunk_messages(chunk):
                     text = getattr(msg, "content", "")
                     if text and isinstance(msg.content, str):
-                        print(text, end="", flush=True)   # 不换行 → 打字机效果
-                        full_response += text             # 同时拼完整回复
-        except Exception as exc:                    # 模型异常容错（P-015）
+                        print(text, end="", flush=True)  # 流式（逐块打印）
+                        full_response += text
+        except Exception as exc:  # noqa: BLE001 —— 故意捕获所有模型调用异常（限流/欠费/网络抖动）给友好提示，不让调试 CLI 崩掉
+            # 容错：模型服务端限流/欠费/网络抖动时给友好提示，不崩掉整个 CLI
+            # （实测：智谱免费模型高峰期返回 code 1305 访问量过大，见问题日志 P-015）
             print(f"\n[模型调用失败] {type(exc).__name__}: {str(exc)[:200]}")
             full_response = f"(调用失败: {str(exc)[:120]})"
-        print()                                     # 换行收尾
+        print()  # 换行结束本轮
 
-        sessions.add_message(thread_id, "assistant", full_response)  # ④ 存回复
-        sessions.touch(thread_id)                   #    刷新 updated_at
+        # 存回复 + 刷新会话时间
+        sessions.add_message(thread_id, "assistant", full_response)
+        sessions.touch(thread_id)
 
-        if first_turn:                              # ⑤ 首轮自动标题（只一次）
+        # 自动标题（M2）：首轮对话后读图状态里的 title（TitleMiddleware 生成），
+        # 落库 sessions.title + 控制台提示。标题只生成一次（中间件幂等）。
+        if first_turn:
             first_turn = False
             try:
                 st = agent.get_state({"configurable": {"thread_id": thread_id}})
@@ -445,9 +526,8 @@ def main() -> None:
                 if title:
                     sessions.update_title(thread_id, title)
                     print(f"\n[标题] {title}")
-            except Exception:                       # 标题失败不影响对话
-                pass
-```
+            except Exception:  # noqa: BLE001, S110 —— 标题失败不影响对话（无日志，调试期静默）
+                pass```
 
 **整块解析**：一次运行 = 一个会话，循环处理直到退出。每轮六步：
 
@@ -460,6 +540,42 @@ def main() -> None:
 | ⑤ 首轮标题 | `get_state` 读 `title` → 落库 | `first_turn` 保证只生成一次 |
 
 两个设计点：`except Exception` 故意捕获所有模型异常（限流/欠费/网络抖动不崩 CLI，实测智谱 code 1305）；`agent.get_state` 按 thread_id 读图状态，取 TitleMiddleware 写入的 `title`——标题失败静默吞掉，不影响对话。
+
+### 块 4-M4：M4 沙箱/审计/派发装配段（main 内部片段，main.py:177-192）
+
+```python
+    # ⑥ 工具（M2→M4）：工具目录全量工具（9 个，含沙箱终端/文件/子代理派发）
+    tools = get_available_tools()
+
+    # M4：沙箱装配——本地目录沙箱（子代理/终端操作落在项目 .sandbox 内，
+    #     宿主目录访问被 LocalSandbox._resolve 拦截；全程写审计）
+    sandbox_root = project_root / ".sandbox"
+    set_sandbox_provider(LocalSandboxProvider(sandbox_root))
+    sandbox_audit = SandboxAuditRepository(db_path=db_path)
+    configure_terminal_audit(sandbox_audit)
+    configure_file_audit(sandbox_audit)
+
+    # ⑦ 中间件（M2）：标题 + 线程数据目录（挂到 Agent 上，横向能力）
+    middlewares = [TitleMiddleware(), ThreadDataMiddleware()]
+
+    # ⑧ 模型 + M3 记忆/知识装配 + ⑨ Agent（含记忆/技能注入）
+    model = create_chat_model(cfg.models.chat)
+
+    # M4：派发服务注入（dispatch_subagents 工具用：子代理工具集 + 父模型）
+    configure_dispatch_service(tools, model)
+```
+
+**整块解析**（M4 增量）：插在块 4 既有装配链里的三段新逻辑——① **沙箱 provider 注入**：`set_sandbox_provider(LocalSandboxProvider(project_root / ".sandbox"))` 把本地目录沙箱设为全局单例，终端/文件/子代理操作都落在项目 `.sandbox` 内，越界路径被 `LocalSandbox._resolve` 拦；② **审计 repo 注入**：`SandboxAuditRepository(db_path=db_path)` 建好后，分别 `configure_terminal_audit` / `configure_file_audit` 挂到 terminal_run 与 read_file/write_file 工具（模块级句柄），每次沙箱操作写一行 sandbox_audit；③ **派发服务注入**：`configure_dispatch_service(tools, model)`（dispatch_tool.py:57）把全量工具集 + 父模型塞进 dispatch_subagents 工具的模块级句柄，子代理才能复用工具与模型。顺序上：先有 tools（⑥）→ 沙箱/审计 → 再建 model（⑧）→ 最后用 `(tools, model)` 调 configure_dispatch_service。
+
+启动信息随之新增三行（main.py:226-228）：
+
+```python
+    print(f"沙箱: {type(get_sandbox_provider()).__name__}（{sandbox_root}）")  # M4
+    print(f"子代理: {', '.join(get_subagent_names())}（并行 ≤3）")  # M4
+    print(f"审计: {sandbox_audit.count()} 条")  # M4
+```
+
+`type(get_sandbox_provider()).__name__` 打印沙箱实现类名；`get_subagent_names()`（subagents/registry.py:64）列出已注册子代理名并标注"并行 ≤3"；`sandbox_audit.count()`（sandbox_audit_repositories.py:86）回显历史审计条数。
 
 ## 📖 知识点
 
@@ -582,10 +698,13 @@ A: 两套记忆各管各的——checkpointer 存**对话上下文**（同一 th
 A: **argparse**：Python 标准库的命令行参数解析器。程序启动时命令行参数存在 `sys.argv`（如 `["agentflow", "--thread", "abc"]`），argparse 负责把字符串按规则解析成结构化对象，代码里直接 `args.thread` 取值，不用手写字符串处理。
 
 ```python
-p = argparse.ArgumentParser(description="AgentFlow 终端对话")
-p.add_argument("--thread", default=None, help="复用指定会话 ID（thread_id），继续上次对话")
-args = p.parse_args()
-```
+    p = argparse.ArgumentParser(description="AgentFlow 终端对话")
+    p.add_argument(
+        "--thread",
+        default=None,  # 缺省 = 新会话（自动生成 thread_id）
+        help="复用指定会话 ID（thread_id），继续上次对话",
+    )
+    return p.parse_args()```
 
 | 代码 | 作用 |
 | --- | --- |
@@ -612,6 +731,8 @@ args = p.parse_args()
 1. Path(__file__).parents[5] 定位项目根，改目录层级会失效
 2. _iter_chunk_messages 兼容嵌套/顶层两种 chunk 形态，勿简化
 3. 首轮标题逻辑依赖 TitleMiddleware 写 state["title"]，两者需同步
+4. M4 装配顺序敏感：必须先 `set_sandbox_provider` + 注入审计 repo，再 `configure_dispatch_service(tools, model)`；沙箱根固定为 `project_root / ".sandbox"`，改项目根定位会同时影响沙箱隔离边界
 
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。2026-09-29 更新：目录、顺序执行链流程图、成块代码解析、知识点；源码注释修正（_generate_thread_id 实现为 os.urandom 纯随机，编号理顺为 ①-⑬）。同日二更：块 3 docstring 与源码对齐；知识点 3 补「图状态」通俗解释 + 比喻 + main.py 三步对照；Q&A 新增「图状态是什么」。同日三更（M3）：块 4 装配段同步记忆/知识装配 + 系统提示注入；块 5 加 ①b 记忆沉淀；启动信息加记忆/知识条数；Q&A 新增「记忆怎么跨会话记住」；知识点 5 双份数据补充 memories 表（跨会话）。_
+_2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_

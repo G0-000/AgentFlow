@@ -83,4 +83,17 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
     created_at  TEXT NOT NULL            -- 分块时间
 );
 CREATE INDEX IF NOT EXISTS idx_chunks_doc ON knowledge_chunks (doc_id);
+
+-- 沙箱审计表（M4）：一条记录 = 一次沙箱操作（放行/拦截）
+CREATE TABLE IF NOT EXISTS sandbox_audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,  -- 自增主键
+    thread_id   TEXT NOT NULL DEFAULT '',           -- 来源会话（thread_id）
+    subagent_name TEXT NOT NULL DEFAULT '',         -- 操作方（子代理名/工具名）
+    action      TEXT NOT NULL,                      -- 操作类型: terminal_run/read_file/write_file/...
+    target      TEXT NOT NULL,                      -- 目标（命令或路径）
+    allowed     INTEGER NOT NULL,                   -- 1=放行 0=拦截
+    reason      TEXT NOT NULL DEFAULT '',           -- 拦截原因/备注
+    created_at  TEXT NOT NULL                       -- 记录时间
+);
+CREATE INDEX IF NOT EXISTS idx_sandbox_audit_thread ON sandbox_audit (thread_id);
 """

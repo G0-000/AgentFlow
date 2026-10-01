@@ -30,11 +30,23 @@
 └────────────────────────────────────────────────┘
 ```
 
+**M4 追加（sandbox_audit 沙箱审计表）**：
+
+```text
+│   sandbox_audit     沙箱审计表（M4）            │
+│     id PK / thread_id / subagent_name          │
+│     action / target / allowed(1放行0拦截)       │
+│     reason / created_at                        │
+│   └── idx_sandbox_audit_thread：按 thread_id    │
+│       反查某会话的沙箱放行/拦截记录             │
+```
+
 ## 📤 关键导出
 
 **常量**
 
 - `SCHEMA_SQL`
+  - M4：字符串内新增 `sandbox_audit` 建表语句 + `idx_sandbox_audit_thread` 索引；无新顶层符号，文件仍唯一导出 `SCHEMA_SQL`。
 
 ## 💡 设计思想
 
@@ -86,6 +98,13 @@ flowchart TD
     I --> J["⑦ idx_chunks_doc 索引"]
     J --> K["IF NOT EXISTS：已存在则跳过（幂等）"]
     K --> L["bootstrap commit 落盘"]
+```
+
+**M4 追加：executescript 还多跑两条语句**
+
+```text
+├─ ⑦ CREATE TABLE IF NOT EXISTS sandbox_audit      ← M4 沙箱审计表（一次沙箱操作一行）
+└─ ⑧ CREATE INDEX idx_sandbox_audit_thread           ← 按 thread_id 查审计
 ```
 
 ## 🧩 代码解析（成块对照 schema.py）
@@ -165,6 +184,25 @@ CREATE INDEX IF NOT EXISTS idx_chunks_doc ON knowledge_chunks (doc_id);
 
 **整块解析**：M3 知识库两张表——`knowledge_docs` 一个导入文档一行；`knowledge_chunks` 是其分块，`doc_id` 外键指向文档，`embedding BLOB` 存向量（JSON 序列化的 float 列表）。索引 `idx_chunks_doc` 按 doc_id 反查某文档的所有分块。两张表提前建好（IF NOT EXISTS），M3 业务代码落地时直接可用，无需改 bootstrap。
 
+### 块 5：`sandbox_audit` 沙箱审计表（M4）+ 索引
+
+```python
+-- 沙箱审计表（M4）：一条记录 = 一次沙箱操作（放行/拦截）
+CREATE TABLE IF NOT EXISTS sandbox_audit (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,  -- 自增主键
+    thread_id   TEXT NOT NULL DEFAULT '',           -- 来源会话（thread_id）
+    subagent_name TEXT NOT NULL DEFAULT '',         -- 操作方（子代理名/工具名）
+    action      TEXT NOT NULL,                      -- 操作类型: terminal_run/read_file/write_file/...
+    target      TEXT NOT NULL,                      -- 目标（命令或路径）
+    allowed     INTEGER NOT NULL,                   -- 1=放行 0=拦截
+    reason      TEXT NOT NULL DEFAULT '',           -- 拦截原因/备注
+    created_at  TEXT NOT NULL                       -- 记录时间
+);
+CREATE INDEX IF NOT EXISTS idx_sandbox_audit_thread ON sandbox_audit (thread_id);
+```
+
+**整块解析**：M4 新增的沙箱审计表——一条记录 = 一次沙箱操作（放行或拦截），由 `SandboxAuditRepository` 在 CLI 装配时注入 terminal_run / read_file / write_file 工具，每次沙箱操作落一行。字段读法：`thread_id`（来源会话，默认空串）、`subagent_name`（操作方子代理名/工具名）、`action`（操作类型 terminal_run/read_file/write_file/…）、`target`（目标命令或路径）、`allowed` 用 **INTEGER 0/1**（SQLite 无原生 BOOLEAN，1=放行 0=拦截）、`reason`（拦截原因/备注）。索引 `idx_sandbox_audit_thread` 按 thread_id 反查某会话的全部沙箱记录，供审计回看。
+
 ## ❓ Q&A / 知识点
 
 ### 为什么时间字段用 TEXT，而不是 SQLite 的日期类型？
@@ -183,7 +221,9 @@ M7 前端要渲染会话列表——若消息和会话挤在一张表，列出 N
 
 1. 改表结构 = 破坏性变更：旧库不迁移，需手动重建或写 migration
 2. session_messages.session_id 外键 → sessions.id（外键约束依赖 db.py 开启）
+3. sandbox_audit.allowed 用 INTEGER 0/1 而非布尔：SQLite 无原生 BOOLEAN，存取均走整数（1=放行 0=拦截）
 
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：schema.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_

@@ -102,6 +102,11 @@ TOOL_TIER_MAP: dict[str, ToolTier] = {
     "plan": "plan",
     # 抓网页：工作区场景
     "fetch_url": "workspace",
+    # M4 新增：沙箱终端/文件（工作区场景）+ 子代理派发（核心编排）
+    "terminal_run": "workspace",
+    "read_file": "workspace",
+    "write_file": "workspace",
+    "dispatch_subagents": "core",
 }
 
 

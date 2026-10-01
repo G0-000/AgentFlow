@@ -65,9 +65,12 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     全部模块级 import 会拖慢 CLI 启动；lru_cache 保证只加载一次。
     """
     from agentflow.tools.builtins.clarification_tool import ask_clarification_tool
+    from agentflow.tools.builtins.dispatch_tool import dispatch_subagents
     from agentflow.tools.builtins.fetch_url_tool import fetch_url_tool
+    from agentflow.tools.builtins.file_tools import read_file, write_file
     from agentflow.tools.builtins.knowledge_tool import knowledge_tool
     from agentflow.tools.builtins.plan_tool import plan_tool
+    from agentflow.tools.builtins.terminal_tool import terminal_run
     from agentflow.tools.builtins.todo_tool import todo_tool
 
     return (
@@ -76,6 +79,10 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
         knowledge_tool,
         plan_tool,
         fetch_url_tool,
+        terminal_run,
+        read_file,
+        write_file,
+        dispatch_subagents,
     )
 
 
