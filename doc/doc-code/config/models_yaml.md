@@ -94,7 +94,9 @@ import os
 from agentflow.config.model_config import ChatModelConfig, ModelConfig
 ```
 
-**整块解析**：只引三样东西——`os`（读环境变量，给 `${ENV}` 展开用）、`ChatModelConfig`/`ModelConfig`（本模块产出的类型，从 model_config 引入）。本模块是"yaml → 类型化对象"的翻译层，不碰文件 IO（文件读取在 app_config）、不碰校验（在 CLI）。
+**结构简析**：只引三样——`os`（读环境变量，给 `${ENV}` 展开用）、`ChatModelConfig`/`ModelConfig`（本模块产出的类型，从 model_config 引入）。
+
+**补充**：本模块是「yaml → 类型化对象」的翻译层，不碰文件 IO（文件读取在 app_config）、不碰校验（在 CLI）。
 
 ### 块 2：`_resolve_env` —— `${ENV}` 占位展开
 
@@ -111,7 +113,15 @@ def _resolve_env(value: str) -> str:
     return value
 ```
 
-**整块解析**：三行核心逻辑——① 判形：`startswith("${") and endswith("}")` 才认定是占位符；② 切片 `value[2:-1]` 去掉 `${` 和 `}`，拿到变量名；③ `os.environ.get(变量名, "")` 取值，**取不到给空串而不抛异常**。非占位字符串原样返回——这就是风险点 1：环境变量没配时 api_key 变成空串，把"缺 key"的暴露时机交给下游（CLI 构造 ChatOpenAI 时会抛 Missing credentials）。
+**结构简析**：三行核心逻辑——① 判形：`startswith("${") and endswith("}")` 才认定是占位符；② 切片 `value[2:-1]` 去掉 `${` 和 `}` 拿到变量名；③ `os.environ.get(变量名, "")` 取值，取不到给空串而不抛异常；非占位字符串原样返回。
+
+**`_resolve_env()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `value` | `str` | 必填 | 配置字符串；形如 `${ZHIPU_API_KEY}` 则取环境变量值，普通字符串原样返回 |
+
+**落库要点/补充**：环境变量没配时 `os.environ.get(..., "")` 让 api_key 变成空串，把「缺 key」的暴露时机交给下游（CLI 构造 ChatOpenAI 时才抛 Missing credentials）——配置解析阶段永远不炸。
 
 ### 块 3：`load_models_from_yaml` —— 装配入口
 
@@ -152,11 +162,19 @@ def load_models_from_yaml(raw: dict | None) -> ModelConfig | None:
     return ModelConfig(chat=chat, embedding=embedding)
 ```
 
-**整块解析**：四步——① `if not raw` 把"没配 models 段"显式转成 `None`，让 CLI 有明确提示点；② `raw.get(...) or {}` 双层兜底（段缺失/值为 None 都给空 dict）；③ chat 与 embedding 两段**同构装配**，唯一差别是 temperature 默认值（对话 0.3 要一点发散，embedding 0.0 要确定性）；④ api_key 是唯一过 `_resolve_env` 的字段（其他字段都不是密钥，原样透传）。所有 `.get(键, 默认值)` 的默认值必须与 model_config.py 的 dataclass 默认值一致（风险点 2）。
+**结构简析**：四步——① `if not raw` 把「没配 models 段」显式转成 `None`，让 CLI 有明确提示点；② `raw.get(...) or {}` 双层兜底（段缺失/值为 None 都给空 dict）；③ chat 与 embedding 两段**同构装配**，唯一差别是 temperature 默认值（对话 0.3、embedding 0.0）；④ api_key 是唯一过 `_resolve_env` 的字段。
+
+**`load_models_from_yaml()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `raw` | `dict \| None` | 必填 | yaml 里的 models 段（dict），如 `{"chat": {...}}`；为 None/空 dict 时直接返回 None（调用方需判空） |
+
+**落库要点/补充**：所有 `.get(键, 默认值)` 的默认值必须与 model_config.py 的 dataclass 默认值一致（provider=`"openai-compatible"`、base_url/model/api_key=`""`）；temperature 强制 `float(...)` 转换，chat 缺省 0.3、embedding 缺省 0.0。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 `${ENV}` 展开失败不报错？
+### 1. 为什么 `${ENV}` 展开失败不报错？
 
 **一句话**：`os.environ.get(name, "")` 取不到环境变量时静默给空串，把"缺 key"留到构造模型时再暴露——这样解析配置阶段永远不炸。
 
@@ -166,7 +184,7 @@ def load_models_from_yaml(raw: dict | None) -> ModelConfig | None:
 
 设计取舍：配置解析层只负责"翻译"，"密钥是否真的可用"是运行期问题。
 
-### chat 和 embedding 的 temperature 默认值为什么不一样？
+### 2. chat 和 embedding 的 temperature 默认值为什么不一样？
 
 **一句话**：对话需要创造性（0.3），向量化需要确定性（0.0）。
 
@@ -185,3 +203,4 @@ def load_models_from_yaml(raw: dict | None) -> ModelConfig | None:
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：models_yaml.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

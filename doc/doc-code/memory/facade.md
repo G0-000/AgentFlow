@@ -115,7 +115,9 @@ from agentflow.memory.consolidate import consolidate_message, extract_facts
 from agentflow.persistence.memory_repositories import MemoryRepository
 ```
 
-**整块解析**：门面恰好连两条边——① `consolidate_message, extract_facts`（记忆"怎么提取/沉淀"的业务逻辑）；② `MemoryRepository`（记忆"存哪"的数据访问）。门面自己不写提取规则、也不写 SQL，只把这两者编排到一起。这正是门面模式：对外暴露统一接口，对内委托给 consolidate 与 repo。
+**结构简析**：门面恰好连两条边——① `consolidate_message, extract_facts`（记忆"怎么提取/沉淀"的业务逻辑）；② `MemoryRepository`（记忆"存哪"的数据访问）。门面自己不写提取规则、也不写 SQL。
+
+**补充**：这正是门面模式——对外暴露统一接口，对内委托给 consolidate 与 repo，把这两者编排到一起。
 
 ### 块 2：`MemoryFacade.__init__` + `remember` —— 沉淀委托
 
@@ -131,7 +133,18 @@ class MemoryFacade:
         return consolidate_message(thread_id, role, content, self.repo)
 ```
 
-**整块解析**：`__init__` 只做一件事——把 repo 存到 `self.repo`（依赖注入，方便换 repo / 测试）。`remember` 是纯委托：签名收 `thread_id/role/content`，转头就调 `consolidate_message(thread_id, role, content, self.repo)`，把提取+落库的活儿全交出去，返回值（本次沉淀条数）原样透传。门面不在这里写任何规则——规则在 consolidate。
+**结构简析**：`__init__` 只做一件事——把 repo 存到 `self.repo`（依赖注入，方便换 repo / 测试）。`remember` 是纯委托：收 `thread_id/role/content`，转头就调 `consolidate_message(...)`，把提取+落库全交出去，沉淀条数原样透传。门面不在这里写任何规则——规则在 consolidate。
+
+**`MemoryFacade.__init__()` / `remember()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `repo`（`__init__`） | `MemoryRepository` | 必填 | 记忆数据访问层实例，存为 `self.repo`；remember 链路里由 `consolidate_message(..., self.repo)` 用来落库 |
+| `thread_id`（`remember`） | `str` | 必填 | 会话 ID，作为记忆来源标签透传给 `consolidate_message` |
+| `role`（`remember`） | `str` | 必填 | 消息角色（如 `"user"`），透传给 `consolidate_message` |
+| `content`（`remember`） | `str` | 必填 | 本轮消息原文；`consolidate_message` 从中提取用户事实并落库 |
+
+**落库要点**：`remember` 返回 `consolidate_message(thread_id, role, content, self.repo)` 的返回值——本次沉淀的事实条数（int）。
 
 ### 块 3：`recall` —— 召回并格式化成提示词段落
 
@@ -148,7 +161,16 @@ class MemoryFacade:
         return "已知关于用户的事实:\n" + "\n".join(lines)
 ```
 
-**整块解析**：召回链路——`self.repo.recall(thread_id, limit=limit)` 取行（`thread_id=None` 即跨会话取全部最新 `limit` 条，按时间倒序）。两道处理：① 空结果直接返回 `""`（提示词里就没有记忆段，模型不困惑）；② 非空则每行渲染成 `- {content}`，拼成固定头 `已知关于用户的事实:` 的段落。返回字符串可被 CLI 直接拼进系统提示词——格式固定是这个门面的承诺。
+**结构简析**：召回链路——`self.repo.recall(thread_id, limit=limit)` 取行。两道处理：① 空结果直接返回 `""`（提示词里就没有记忆段，模型不困惑）；② 非空则每行渲染成 `- {content}`，拼成固定头 `已知关于用户的事实:` 的段落。
+
+**`recall()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str \| None` | `None` | 来源过滤；`None` 即**跨会话**取全部最新 `limit` 条（M3 验收点"新会话记得旧事实"），传具体 ID 则 repo 层按该会话过滤 |
+| `limit` | `int` | `10` | 召回条数上限，透传 `repo.recall(thread_id, limit=limit)`；按时间倒序取最新 N 条 |
+
+**落库要点**：返回字符串固定为 `已知关于用户的事实:\n` + 各行 `- {content}` 用换行拼接，可被 CLI 直接拼进系统提示词——格式固定是这个门面的承诺。
 
 ### 块 4：`count` + 静态 `extract_facts` —— 条数与测试透传
 
@@ -164,11 +186,21 @@ class MemoryFacade:
         return extract_facts(text)
 ```
 
-**整块解析**：`count()` 也是薄委托——`self.repo.count()`，专供 CLI 启动信息打印。`@staticmethod extract_facts` 注释明说"供测试/工具用"：它不访问 `self`，只是把 consolidate 的 `extract_facts` 再暴露一层，让测试/工具方从门面这一个入口就能拿到规则提取能力，不必再单独 import consolidate。
+**结构简析**：`count()` 是薄委托——`self.repo.count()`，专供 CLI 启动信息打印。`@staticmethod extract_facts` 注释明说"供测试/工具用"：它不访问 `self`，只是把 consolidate 的 `extract_facts` 再暴露一层。
+
+**`count()` / `extract_facts()` 参数逐条解释**：
+
+- `count()` 无参数：直接 `return self.repo.count()`，返回记忆总条数（int），供 CLI 启动 `print(f"记忆: {n} 条")`。
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `text`（`extract_facts`，静态方法） | `str` | 必填 | 待提取文本；`return extract_facts(text)`（透传 consolidate 的规则提取），返回 `list[str]` 事实列表。不访问 `self`，测试/工具方从门面这一个入口即可拿到规则提取能力，不必单独 import consolidate |
+
+**补充**：两个方法都不加业务逻辑，count 给启动信息、extract_facts 给测试/工具透传。
 
 ## ❓ Q&A / 知识点
 
-### 门面（Facade）在这里到底简化了什么？
+### 1. 门面（Facade）在这里到底简化了什么？
 
 **一句话**：业务方（CLI）只跟 `MemoryFacade` 一个对象打交道，不用分别 import consolidate 和 MemoryRepository、也不用知道"沉淀要先提取再落库"这条链路。
 
@@ -180,7 +212,7 @@ class MemoryFacade:
 
 门面把"提取（consolidate）+ 落库/查询（repo）"的协作封装成 remember/recall/count 三个动作。
 
-### recall 为什么默认跨会话（thread_id=None）？
+### 2. recall 为什么默认跨会话（thread_id=None）？
 
 **一句话**：M3 验收点是"新会话也能记得旧事实"——`thread_id` 只是来源标签、不是隔离键，`recall(thread_id=None)` 才会把全库最新事实取出来注入。
 
@@ -194,3 +226,4 @@ CLI 启动时正是用 `memories.recall(limit=10)`（不传 thread_id）拿快�
 ---
 _2026-09-30 新建：M3 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
 _2026-09-30 修复：Mermaid 块改为无 <br/> 精简版（规避 splitLineToFitWidth 换行报错）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

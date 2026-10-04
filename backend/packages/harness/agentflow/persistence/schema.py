@@ -96,4 +96,57 @@ CREATE TABLE IF NOT EXISTS sandbox_audit (
     created_at  TEXT NOT NULL                       -- 记录时间
 );
 CREATE INDEX IF NOT EXISTS idx_sandbox_audit_thread ON sandbox_audit (thread_id);
+
+-- 长任务表（M5）：一行 = 一个长任务尝试（goal + 步骤计划 JSON 同行）
+CREATE TABLE IF NOT EXISTS goals (
+    goal_id          TEXT PRIMARY KEY,           -- g_ + urandom(6).hex()
+    thread_id        TEXT NOT NULL,              -- 归属会话（--thread 恢复定位键）
+    goal_text        TEXT NOT NULL,              -- 用户原始长任务描述
+    goal_status      TEXT NOT NULL DEFAULT 'pending',
+        -- pending/planning/planned/executing/paused/completed/failed/cancelled
+    current_step     TEXT NOT NULL DEFAULT '',   -- 正在执行的 step.ref（断点坐标）
+    plan_steps_json  TEXT NOT NULL DEFAULT '[]', -- JSON 数组[PlanStep]（含每步 status）
+    max_steps        INTEGER NOT NULL DEFAULT 12,
+    completed_steps  INTEGER NOT NULL DEFAULT 0,
+    last_error       TEXT NOT NULL DEFAULT '',
+    stop_reason      TEXT NOT NULL DEFAULT '',   -- max_steps/judge_fallback/...
+    summary          TEXT NOT NULL DEFAULT '',   -- 最终汇总报告（complete 时写）
+    outcome          TEXT NOT NULL DEFAULT '',   -- done/failed/...
+    created_at       TEXT NOT NULL,
+    updated_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_goals_thread ON goals (thread_id);
+CREATE INDEX IF NOT EXISTS idx_goals_status ON goals (goal_status);
+
+-- 定时任务定义表（M5）：一行 = 一条 automation
+CREATE TABLE IF NOT EXISTS automations (
+    task_id        TEXT PRIMARY KEY,             -- t_ + urandom(6).hex()
+    name           TEXT NOT NULL DEFAULT '',
+    prompt         TEXT NOT NULL,                -- 到点投递的提示词
+    schedule       TEXT NOT NULL,                -- 归一化后 cron 5 字段 "m h dom mon dow"
+    schedule_type  TEXT NOT NULL DEFAULT 'recurring',  -- recurring | once
+    scheduled_at   TEXT,                         -- once 型目标时间（ISO）
+    status         TEXT NOT NULL DEFAULT 'active',     -- active | paused
+    once_fired     INTEGER NOT NULL DEFAULT 0,
+    last_run       TEXT,
+    last_status    TEXT NOT NULL DEFAULT '',
+    run_count      INTEGER NOT NULL DEFAULT 0,
+    created_at      TEXT NOT NULL,
+    updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_automations_status ON automations (status);
+
+-- 定时任务执行历史表（M5，M5 唯一保留的事件历史）
+CREATE TABLE IF NOT EXISTS automation_runs (
+    id               INTEGER PRIMARY KEY AUTOINCREMENT,
+    task_id          TEXT NOT NULL,
+    run_id           TEXT NOT NULL,
+    started_at       TEXT NOT NULL,
+    finished_at      TEXT,
+    status           TEXT NOT NULL DEFAULT 'running',  -- running|success|failed
+    output           TEXT NOT NULL DEFAULT '',
+    error            TEXT NOT NULL DEFAULT '',
+    duration_seconds REAL
+);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_task ON automation_runs (task_id);
 """

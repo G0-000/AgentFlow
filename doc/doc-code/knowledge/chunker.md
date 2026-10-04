@@ -120,7 +120,9 @@ except Exception:  # noqa: BLE001, S110 —— tiktoken 未安装时降级启发
     pass
 ```
 
-**整块解析**：模块级就决定"要不要精确数 token"。`try/except` 包住 `import tiktoken` 并预取 `cl100k_base` 编码（OpenAI 的主流 BPE），成功则 `_tiktoken_enc` 非 None；失败（未安装）整个 except 吞掉，`_tiktoken_enc` 保持 None。这是典型的**可选依赖降级**：装了 tiktoken 精确切，没装也不炸（退回启发式）。`re` 用于段落与句子切分，是本模块唯一硬依赖。
+**结构简析**：模块级就决定"要不要精确数 token"。`try/except` 包住 `import tiktoken` 并预取 `cl100k_base` 编码（OpenAI 的主流 BPE），成功则 `_tiktoken_enc` 非 None；失败（未安装）整个 except 吞掉，`_tiktoken_enc` 保持 None。`re` 用于段落与句子切分，是本模块唯一硬依赖。
+
+**补充**：这是典型的**可选依赖降级**——装了 tiktoken 就精确切，没装也不炸（退回 `len//4` 启发式），M3 不把 tiktoken 列为硬依赖。
 
 ### 块 2：`_count_tokens` —— 精确/估算双路
 
@@ -132,7 +134,15 @@ def _count_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 ```
 
-**整块解析**：计数只有两个出口——有 encoder 就 `encode` 后取长度（精确）；否则 `len(text)//4`（粗略按 4 字符 ≈ 1 token 的英文经验）。`max(1, ...)` 兜底空串不返回 0。这个数字**只用于切块决策**，不写入向量、不影响检索正确性，所以估算误差可接受。
+**结构简析**：计数只有两个出口——有 encoder 就 `encode` 后取长度（精确）；否则 `len(text)//4`（粗略按 4 字符 ≈ 1 token 的英文经验）。`max(1, ...)` 兜底空串不返回 0。
+
+**`_count_tokens()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `text` | `str` | 必填 | 待计数文本；有 `_tiktoken_enc` 时返回 `len(enc.encode(text))`（精确），否则返回 `max(1, len(text)//4)`（估算） |
+
+**补充**：这个数字**只用于切块决策**，不写入向量、不影响检索正确性，所以估算误差可接受。
 
 ### 块 3：`_split_paragraphs` —— 按空行切段落并保留偏移
 
@@ -153,7 +163,15 @@ def _split_paragraphs(text: str) -> list[dict]:
     return paras
 ```
 
-**整块解析**：正则 `\n\s*\n` 匹配"空行"（允许空行里有空白字符）。`finditer` 逐次给出匹配位置，循环里把 `[start:end]` 截出来 strip 后非空才收，记录原始字符偏移 `start/end`；最后一段用 `text[start:]` 收尾。**偏移保留是关键**——后续打包块时 `char_start/char_end` 能回链原文位置。
+**结构简析**：正则 `\n\s*\n` 匹配"空行"（允许空行里有空白字符）。`finditer` 逐次给出匹配位置，循环里把 `[start:end]` 截出来 strip 后非空才收，记录原始字符偏移 `start/end`；最后一段用 `text[start:]` 收尾（`end=len(text)`）。
+
+**`_split_paragraphs()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `text` | `str` | 必填 | 待切分原文；按空行切成若干段，每段输出 `{"text": seg, "start": start, "end": end}`，首尾段边界分别为 `start=0` / `end=len(text)` |
+
+**落库要点**：**偏移保留是关键**——后续打包块时用每段的 `start/end` 回填分块的 `char_start/char_end`，未来可回链原文位置做"引用高亮"。
 
 ### 块 4：`_hard_split` —— 单段超长按句子硬切
 
@@ -178,7 +196,17 @@ def _hard_split(text: str, chunk_size: int, overlap: int) -> list[dict]:
     return chunks
 ```
 
-**整块解析**：一个段落本身就超 chunk_size 时，不能整段塞进一块，于是退一步按**句子**切（正则 `(?<=[。！？.!?])` 向后断言保留中英文句末标点）。缓冲 `buf` 逐句累加，一旦 `buf+s` 超限就把 buf 落成一块；下一块起点用 `start += max(0, len(buf) - overlap*4)` 回退约 overlap 字符做衔接。`overlap*4` 是把 overlap（按 token 计）粗略换算回字符（1 token ≈ 4 字符）。
+**结构简析**：一个段落本身就超 chunk_size 时，不能整段塞进一块，于是退一步按**句子**切（正则 `(?<=[。！？.!?])\s*` 向后断言保留中英文句末标点）。缓冲 `buf` 逐句累加，一旦 `buf+s` 超限就把 buf 落成一块；下一块起点用 `start += max(0, len(buf) - overlap*4)` 回退约 overlap 字符做衔接。
+
+**`_hard_split()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `text` | `str` | 必填 | 单段超长段落的原文；先按句末标点切成 `sentences` 列表，空句子 `continue` |
+| `chunk_size` | `int` | 必填 | token 预算；`_count_tokens(buf + s) > chunk_size` 且 `buf` 非空时冲刷当前块 |
+| `overlap` | `int` | 必填 | 相邻块衔接长度（按 token 计）；回退量 `max(0, len(buf) - overlap*4)`，`*4` 是 1 token≈4 字符的粗略换算 |
+
+**落库要点**：每块输出 `{content, token_count, char_start, char_end}`——`char_end = start + len(buf)`；收尾把剩余 `buf` 落成最后一块。
 
 ### 块 5：`chunk_text` 主函数 —— 贪心打包 + overlap 衔接
 
@@ -252,25 +280,33 @@ def chunk_text(
     return chunks
 ```
 
-**整块解析**：对外唯一入口。核心是一个"段落缓冲 + 两个冲刷分支"的状态机：
+**结构简析**：对外唯一入口。核心是一个"段落缓冲 + 两个冲刷分支"的状态机：
 
 | 分支 | 触发条件 | 动作 |
 |---|---|---|
-| 单段超长 | `para_tokens > chunk_size` | 先冲刷当前缓冲，再 `_hard_split` 该段，extend 进结果 |
+| 单段超长 | `para_tokens > chunk_size` | 先冲刷当前缓冲，再 `_hard_split` 该段，`extend` 进结果 |
 | 打包超限 | `current_tokens + para_tokens > chunk_size` 且缓冲非空 | 冲刷当前块；下一块头部预挂 `overlap_text`（前块尾部约 overlap×4 字符） |
 | 正常累加 | 否则 | 段落 append 进 `current_parts` |
 
-overlap 的实现是"显式把前块尾部文本塞进下块开头"（`current_parts.append(overlap_text)`），而不是切完再去重——简单直接，代价是相邻块内容有少量重复。参数 clamp 保证 `overlap < chunk_size`。
+**`chunk_text()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `text` | `str` | 必填 | 原始全文；空串或纯空白（`not text.strip()`）直接返回 `[]` |
+| `chunk_size` | `int` | `512` | 每块 token 预算；入口处 `max(1, chunk_size)` 钳到 ≥1；对齐 FastGPT text2Chunks |
+| `overlap` | `int` | `50` | 相邻块上下文重叠 token 数；入口处 `clamp` 到 `max(0, min(overlap, chunk_size-1))`，保证 `< chunk_size` |
+
+**落库要点**：overlap 的实现是"显式把前块尾部文本塞进下块开头"（`current_parts.append(overlap_text)`），而不是切完再去重——简单直接，代价是相邻块内容有少量重复。每块输出 `{content, token_count, char_start, char_end}`，收尾冲刷剩余缓冲时 `char_end=len(text)`。
 
 ## ❓ Q&A / 知识点
 
-### 为什么按段落切，而不是按固定字数硬切？
+### 1. 为什么按段落切，而不是按固定字数硬切？
 
 **一句话**：段落是语义边界，按段落切能保住一句话/一个论点的完整性；按字数硬切会把句子腰斩，向量表达就残缺。
 
 向量检索的质量取决于"每块是不是一个语义自洽的单元"。`_split_paragraphs` 用空行 `\n\s*\n` 切，天然尊重作者的段落结构；只有当**单个段落本身**超长时，才退一步按句子（`。！？.!?`）硬切。这是"先语义、后兜底"的两级降级。
 
-### overlap 是怎么实现的？为什么是 `overlap * 4`？
+### 2. overlap 是怎么实现的？为什么是 `overlap * 4`？
 
 **一句话**：overlap 不是切完后去重，而是**冲刷一块后，显式把前块尾部约 `overlap*4` 个字符塞进下块开头**；`*4` 是"1 token ≈ 4 字符"的粗略换算（与 `_count_tokens` 的 len//4 启发式同源）。
 
@@ -285,3 +321,4 @@ overlap 的实现是"显式把前块尾部文本塞进下块开头"（`current_p
 
 ---
 _2026-09-30 新建：M3 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

@@ -92,7 +92,9 @@ import sqlite3
 from pathlib import Path
 ```
 
-**整块解析**：不依赖任何第三方包——`sqlite3` 是标准库自带的 SQLite 驱动，`pathlib.Path` 用来安全地取"数据库文件所在目录"并创建它。本文件是整个 persistence 层最底层的连接入口，越底层越要零重依赖。
+**结构简析**：不依赖任何第三方包——`sqlite3` 是标准库自带的 SQLite 驱动，`pathlib.Path` 用来安全地取「数据库文件所在目录」并创建它。
+
+**补充**：本文件是整个 persistence 层最底层的连接入口，越底层越要零重依赖。
 
 ### 块 2：`connect` 签名 + docstring —— 三个关键配置的说明书
 
@@ -113,7 +115,13 @@ def connect(db_path: str) -> sqlite3.Connection:
     """
 ```
 
-**整块解析**：函数只有一个入参 `db_path`，但 docstring 把三个"项目级默认配置"讲清楚了——WAL（并发读写）、Row 工厂（行可按列名访问）、外键（REFERENCES 生效的前提）。这三点就是本文件存在的理由：别的地方开连接会漏掉它们。
+**结构简析**：函数只有一个入参 `db_path`，docstring 把三个「项目级默认配置」讲清楚了——WAL（并发读写）、Row 工厂（行可按列名访问）、外键（REFERENCES 生效的前提）。这三点就是本文件存在的理由：别的地方开连接会漏掉它们。
+
+**`connect()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `db_path` | `str` | 必填 | 数据库文件路径（如 项目根/data/agentflow.db）；传 `":memory:"` 走内存库 |
 
 ### 块 3：自动建目录 + 打开连接 + 行工厂
 
@@ -126,7 +134,9 @@ def connect(db_path: str) -> sqlite3.Connection:
     conn.row_factory = sqlite3.Row
 ```
 
-**整块解析**：三步——① `mkdir(parents=True, exist_ok=True)`：连父目录一起递归建，已存在也不报错（幂等），避免首次运行因 `data/` 不存在而失败；② `sqlite3.connect` 打开（不存在则创建）库文件；③ `row_factory = sqlite3.Row` 让后续 `fetchone()` 返回的行支持 `row["列名"]` 取值，而不只是下标 `row[0]`，业务代码可读得多。
+**结构简析**：三步——① `mkdir(parents=True, exist_ok=True)`：连父目录一起递归建，已存在也不报错（幂等），避免首次运行因 `data/` 不存在而失败；② `sqlite3.connect` 打开（不存在则创建）库文件；③ `row_factory = sqlite3.Row` 让后续 `fetchone()` 返回的行支持 `row["列名"]` 取值，而不只是下标 `row[0]`，业务代码可读得多。
+
+**落库要点/补充**：本块无新增参数，沿用块 2 的 `db_path`。
 
 ### 块 4：PRAGMA 配置 + 返回
 
@@ -137,11 +147,13 @@ def connect(db_path: str) -> sqlite3.Connection:
     return conn
 ```
 
-**整块解析**：两条 PRAGMA 各管一件事——`journal_mode=WAL` 把日志模式切到 WAL，读写并发不互斥（未来 gateway 多连接友好）；`foreign_keys=ON` 显式打开外键约束（SQLite 编译默认 OFF）。注释点明关键：**PRAGMA 不持久化到数据库文件，必须每次开连接都重设**——这也是为什么全项目连接都收敛到这一处。
+**结构简析**：两条 PRAGMA 各管一件事——`journal_mode=WAL` 把日志模式切到 WAL，读写并发不互斥（未来 gateway 多连接友好）；`foreign_keys=ON` 显式打开外键约束（SQLite 编译默认 OFF）。
+
+**落库要点/补充**：**PRAGMA 不持久化到数据库文件，必须每次开连接都重设**（尤其 `foreign_keys` 是连接级）——这也是为什么全项目连接都收敛到这一处，任何绕过 `connect()` 直接 `sqlite3.connect` 的代码都会丢外键约束。本块无新增参数。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 PRAGMA 要每次连接都重新设置？
+### 1. 为什么 PRAGMA 要每次连接都重新设置？
 
 **一句话**：`journal_mode`、`foreign_keys` 这类 PRAGMA 是**连接级**（或文件级但需逐连接确认）设置，不随数据库文件永久保存——新开一个连接就是默认值，外键又回到 OFF。
 
@@ -152,7 +164,7 @@ def connect(db_path: str) -> sqlite3.Connection:
 
 正因如此，"开连接"被收口到 `connect()` 一处——任何绕过它直接 `sqlite3.connect` 的代码都会丢外键约束。
 
-### WAL 模式为什么"读写不互斥"？
+### 2. WAL 模式为什么"读写不互斥"？
 
 **一句话**：WAL（Write-Ahead Logging）把写操作先追加到 `-wal` 日志文件而非直接改主库，读仍从主库快照读，于是读不阻塞写、写不阻塞读。
 
@@ -166,3 +178,4 @@ def connect(db_path: str) -> sqlite3.Connection:
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：db.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

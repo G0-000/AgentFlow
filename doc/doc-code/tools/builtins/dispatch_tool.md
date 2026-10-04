@@ -147,7 +147,11 @@ _subagent_tools: list[BaseTool] | None = None
 _subagent_model: BaseChatModel | None = None
 ```
 
-**整块解析**：依赖四组——`BaseTool / tool`（工具类型与装饰器）、`BaseChatModel`（模型类型）、`SubagentExecutor / get_subagent_config / get_subagent_names`（经 `subagents` 包出口引入，来自 executor.py 与 registry.py）、`SubagentConfig`（类型标注）。两个模块级全局句柄 `_subagent_tools / _subagent_model` 初值 `None`：dispatch 工具自己不建模型、不收集工具，全部等 CLI 注入。
+**结构简析**：依赖四组——`BaseTool / tool`（工具类型与装饰器）、`BaseChatModel`（模型类型）、`SubagentExecutor / get_subagent_config / get_subagent_names`（经 `subagents` 包出口引入，来自 executor.py 与 registry.py）、`SubagentConfig`（类型标注）。两个模块级全局句柄 `_subagent_tools / _subagent_model` 初值 `None`。
+
+本块无函数签名，不展开参数表。
+
+**补充**：dispatch 工具自己不建模型、不收集工具，全部等 CLI 注入；未注入时走"未配置"友好提示分支。
 
 ### 块 2：`configure_dispatch_service` —— 注入工具集 + 父模型
 
@@ -162,7 +166,16 @@ def configure_dispatch_service(
     _subagent_model = model
 ```
 
-**整块解析**：与 audit repo 同款的模块级注入，但一次注入两样——**父级全部工具列表**（executor 构造时再按子代理 config 的白/黑名单过滤）和**父模型实例**（子代理 `model="inherit"` 时直接复用）。CLI 装配点：`cli/main.py:188` `configure_dispatch_service(tools, model)`，`tools` 即 `get_available_tools()` 返回的全量工具。
+**结构简析**：与 audit repo 同款的模块级注入，但一次注入两样——**父级全部工具列表**（executor 构造时再按子代理 config 的白/黑名单过滤）和**父模型实例**（子代理 `model="inherit"` 时直接复用）。
+
+**`configure_dispatch_service()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tools` | `list[BaseTool] \| None` | 必填 | 父级全部工具列表；挂到 `_subagent_tools`，executor 构造时再按子代理 config 的白/黑名单过滤 |
+| `model` | `BaseChatModel \| None` | 必填 | 父模型实例；挂到 `_subagent_model`，子代理 `model="inherit"` 时直接复用 |
+
+**补充**：CLI 装配点 `cli/main.py:188` `configure_dispatch_service(tools, model)`，`tools` 即 `get_available_tools()` 返回的全量工具。
 
 ### 块 3：`_DISPATCH_DESCRIPTION` —— 给模型看的说明书
 
@@ -178,7 +191,11 @@ _DISPATCH_DESCRIPTION = """\
 """
 ```
 
-**整块解析**：说明书把三件事讲死——① 何时用（任务可拆成**互不依赖**的小任务）；② 三个参数各是什么（tasks 列表 / subagent 类型 / max_parallel 上限）；③ 用法示例。模型据此决定"这个大任务该不该拆、拆成几个、派给谁"。`"""\` 换行写法保留首行后直接接内容。
+**结构简析**：说明书把三件事讲死——① 何时用（任务可拆成**互不依赖**的小任务）；② 三个参数各是什么（tasks 列表 / subagent 类型 / max_parallel 上限）；③ 用法示例。
+
+本块是模块级常量字符串，无函数签名，不展开参数表。
+
+**补充**：作为 `@tool` 的 `description=` 传入；模型据此决定"这个大任务该不该拆、拆成几个、派给谁"。
 
 ### 块 4：`@tool` 装饰器 + 函数签名 —— 三个参数
 
@@ -191,7 +208,17 @@ def dispatch_subagents(
 ) -> str:
 ```
 
-**整块解析**：装饰器注册名 `"dispatch_subagents"`、绑定说明书、`parse_docstring=False`、`return_direct=True`。三个参数由 LangChain 转 JSON schema：`tasks: list[str]`（任务描述列表，必填）；`subagent: str = "general-purpose"`（子代理类型）；`max_parallel: int = 3`（并行上限）。
+**结构简析**：装饰器注册名 `"dispatch_subagents"`、绑定说明书、`parse_docstring=False`、`return_direct=True`。三个参数由 LangChain 转 JSON schema 卡模型。
+
+**`dispatch_subagents()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tasks` | `list[str]` | 必填 | 任务描述列表，每个元素是一个独立子任务会被单独派发；空列表返回"没有任务可派发"，超过 10 个拒收（数量闸门） |
+| `subagent` | `str` | `"general-purpose"` | 子代理类型；`get_subagent_config(subagent)` 查注册表，未知则列出 `get_subagent_names()` 可选项；可选 general-purpose / bash |
+| `max_parallel` | `int` | `3` | 并行上限；实际并行≤3（executor 内部再 `min(max_parallel, 3)` 双保险），传更大也不会超过 3 个同时跑 |
+
+**补充**：`tasks` 单次硬上限 10 个（数量闸门），与 executor 的并行 ≤3（并发闸门）是两层不同限制。
 
 ### 块 5：函数体 —— 四重前置校验 + 构造执行器 + 编号汇总
 
@@ -216,17 +243,15 @@ def dispatch_subagents(
     return "\n\n".join(lines)
 ```
 
-**整块解析**：四重前置校验**全部返回字符串而非抛异常**——这是"不炸模型循环"的关键设计：
-1. `not tasks` → "（没有任务可派发）"；
-2. `len(tasks) > 10` → 单次最多 10 个的硬上限提示；
-3. `get_subagent_config(subagent)` 未命中 → 列出 `get_subagent_names()` 可选项；
-4. **`_subagent_model is None or _subagent_tools is None` → "（派发服务未配置…）"**（见 Q&A）。
+**结构简析**：四重前置校验**全部返回字符串而非抛异常**——这是"不炸模型循环"的关键设计。通过校验后构造 executor → 并行派发 → 按输入顺序逐任务编号汇总。
 
-通过校验后：`SubagentExecutor(cfg, _subagent_tools, model=_subagent_model)`（构造时 `_filter_tools` 按白/黑名单过滤工具）→ `executor.dispatch_parallel(tasks, max_parallel=max_parallel)` 并行跑 → 按 `zip(tasks, results)` 输入顺序逐任务编号：`completed` 取 `r.result`，否则取 `[status] error`，拼成 `【任务i】task\n→ body`，最后 `"\n\n".join(lines)` 返回编号结果表。
+本块是块 4 已签名函数的函数体，参数同 `dispatch_subagents()`（见块 4），不重复造表。
+
+**补充**：四重校验——① `not tasks` → "（没有任务可派发）"；② `len(tasks) > 10` → 单次最多 10 个的硬上限提示；③ `get_subagent_config(subagent)` 未命中 → 列出 `get_subagent_names()` 可选项；④ `_subagent_model is None or _subagent_tools is None` → "（派发服务未配置…）"。通过后 `SubagentExecutor(cfg, _subagent_tools, model=_subagent_model)`（构造时 `_filter_tools` 按白/黑名单过滤工具）→ `executor.dispatch_parallel(tasks, max_parallel=max_parallel)` 并行跑 → 按 `zip(tasks, results)` 输入顺序逐任务编号：`completed` 取 `r.result`，否则取 `[status] error`，拼成 `【任务i】task\n→ body`，最后 `"\n\n".join(lines)` 返回编号结果表。
 
 ## ❓ Q&A / 知识点
 
-### dispatch_subagents 未配置模型/工具时返回什么？为什么（防模型循环）？（2026-10-01 用户提问）
+### 1. dispatch_subagents 未配置模型/工具时返回什么？为什么（防模型循环）？（2026-10-01 用户提问）
 
 **一句话**：返回固定字符串 `（派发服务未配置：CLI 未注入子代理工具集/模型）`，而**不是抛异常或返回空**——目的是不让未配置状态炸进模型工具循环。
 
@@ -246,11 +271,11 @@ def dispatch_subagents(
 
 **配套的"防递归"**：子代理拿到的工具集在 executor 构造时被 `_filter_tools` 过滤，`SubagentConfig.disallowed_tools` 默认黑名单含 `"dispatch_subagents"`（`subagents/config.py:66`）——子代理**不会再派发子代理**，避免无限递归。
 
-### max_parallel 传 5 真的会 5 个一起跑吗？
+### 2. max_parallel 传 5 真的会 5 个一起跑吗？
 
 **一句话**：不会。executor 内部 `dispatch_parallel` 再 `min` 一次：`workers = max(1, min(int(max_parallel), MAX_CONCURRENT_SUBAGENTS))`，`MAX_CONCURRENT_SUBAGENTS = 3`，`ThreadPoolExecutor(max_workers=workers)` 天然排队——派 5 个时第 4/5 个等空位，实际并行恒 ≤3（双保险，验收点 2）。
 
-### 为什么单次任务上限是 10？
+### 3. 为什么单次任务上限是 10？
 
 **一句话**：`len(tasks) > 10` 直接拒收——防止模型一次性拆出几十个子任务把线程池打爆。这是工具层的第一道闸门，与 executor 的并行 ≤3 是两层不同的限制（数量上限 vs 同时并发上限）。
 
@@ -263,3 +288,4 @@ def dispatch_subagents(
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

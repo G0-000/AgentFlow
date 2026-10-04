@@ -99,7 +99,11 @@ from agentflow.tools.tool_catalog import (
 from agentflow.tools.tools import get_available_tools, get_builtin_tools
 ```
 
-**整块解析**：从两个模块取料——`tool_catalog.py`（分层/排序/标签三个纯函数）+ `tools.py`（收集入口两个函数）。测试的 6 个用例正好覆盖这两块的全部公开能力。
+**结构简析**：从两个模块取料——`tool_catalog.py`（分层/排序/标签三个纯函数）+ `tools.py`（收集入口两个函数）。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：6 个用例正好覆盖这两块的全部公开能力。
 
 ### 块 2：test_get_builtin_tools_has_all —— 9 个内置工具
 
@@ -115,7 +119,11 @@ def test_get_builtin_tools_has_all():
     assert {"terminal_run", "read_file", "write_file", "dispatch_subagents"} <= names
 ```
 
-**整块解析**：M4 增量验收的核心用例。`len(tools) == 9` 精确计数；`names` 集合用**子集断言**（`<=`）分别验证 M2 基础 5 个与 M4 新增 4 个都在。注意 `get_builtin_tools` 带 `lru_cache`——如果工具定义改了但缓存没清，此用例会红（这是有意的：提醒清缓存）。
+**结构简析**：M4 增量验收的核心用例——9 个内置工具数量 + 名字双断言。
+
+**`test_get_builtin_tools_has_all()` 参数逐条解释**：无参数，直接断言 `list(get_builtin_tools())`：`len==9`，且 M2 基础 5 个（ask_clarification/todo/knowledge/plan/fetch_url）与 M4 新增 4 个（terminal_run/read_file/write_file/dispatch_subagents）都是 `names` 的子集。
+
+**落库要点**：子集断言（`<=`）只断言"必含这些"，未来加新工具不破坏本测试。`get_builtin_tools` 带 `lru_cache`——工具定义改了但缓存没清时此用例红（有意提醒清缓存）。
 
 ### 块 3：test_tool_names_unique —— 去重
 
@@ -126,7 +134,11 @@ def test_tool_names_unique():
     assert len(names) == len(set(names))
 ```
 
-**整块解析**：验证 `_finalize_tool_catalog` 的去重逻辑。`len(names) == len(set(names))`——列表长度等于集合长度即无重复。这条防的是：未来某工具被注册两次（同名不同模块），模型拿到重复工具会行为异常。
+**结构简析**：验证 `_finalize_tool_catalog` 的去重逻辑——工具名不重复。
+
+**`test_tool_names_unique()` 参数逐条解释**：无参数，直接断言 `[t.name for t in get_available_tools()]` 的列表长度等于其集合长度（`len(names) == len(set(names))`），即无重复。
+
+**落库要点**：防的是未来某工具被注册两次（同名不同模块）——模型拿到重复工具会行为异常。
 
 ### 块 4：test_available_tools_sorted_by_tier —— 分层排序
 
@@ -140,7 +152,11 @@ def test_available_tools_sorted_by_tier():
     assert weights == sorted(weights)
 ```
 
-**整块解析**：分层排序的验证。先把每个工具名转成 tier，再转成排序权重（`tier_sort_key`），断言权重列表等于其排序后的自己（非递减）。**不硬编码具体顺序**——即使 tier 权值调整，只要保持单调递增就不破坏测试。语义是"运行时工具在前、计划类在后"（runtime 权值最小）。
+**结构简析**：分层排序的验证——按 tier 权重非递减。
+
+**`test_available_tools_sorted_by_tier()` 参数逐条解释**：无参数，直接断言：每个工具名先 `resolve_tool_tier` 转 tier、再 `tier_sort_key` 转权重，得到的 `weights` 列表等于其排序后自己（`weights == sorted(weights)`，非递减）。
+
+**落库要点**：不硬编码具体顺序——即使 tier 权值调整，只要保持单调递增就不破坏测试。语义是"运行时工具在前、计划类在后"（runtime 权值最小）。
 
 ### 块 5：test_resolve_tool_tier_known —— 已知工具分层
 
@@ -159,7 +175,11 @@ def test_resolve_tool_tier_known():
     assert resolve_tool_tier("dispatch_subagents") == "core"
 ```
 
-**整块解析**：tier 分层的精确映射表。M2 五个基础工具各有分层（runtime/core/workspace/plan/workspace），M4 四个新增工具也逐个钉死——`terminal_run/read_file/write_file` 归 workspace（沙箱文件/终端是工作区能力），`dispatch_subagents` 归 core（派发是核心能力，与 todo 同层）。改 tool_catalog 分层表时，这里必须同步。
+**结构简析**：tier 分层的精确映射表——已知工具分层逐个钉死。
+
+**`test_resolve_tool_tier_known()` 参数逐条解释**：无参数，直接断言 9 个工具名各自的分层：ask_clarification=runtime、todo=core、knowledge=workspace、plan=plan、fetch_url=workspace；M4 新增 terminal_run/read_file/write_file=workspace、dispatch_subagents=core。
+
+**落库要点**：`terminal_run/read_file/write_file` 归 workspace（沙箱文件/终端是工作区能力），`dispatch_subagents` 归 core（派发是核心能力，与 todo 同层）。改 tool_catalog 分层表时这里必须同步。
 
 ### 块 6：test_resolve_tool_tier_unknown_defaults_optional —— 未知兜底
 
@@ -171,7 +191,11 @@ def test_resolve_tool_tier_unknown_defaults_optional():
     assert resolve_tool_tier(None) == "optional"
 ```
 
-**整块解析**：兜底契约三连测——未知名字符串、空串、None 都归 `optional`（"扩展可选"层）。钉死"未知工具不会被炸成异常、也不会排到核心层"。`None` 的断言特别重要：`resolve_tool_tier(None)` 的实参类型不是 str，防止有人把签名改成 `name: str` 后忘了处理 None。
+**结构简析**：兜底契约三连测——未知名字符串、空串、None 都归 optional。
+
+**`test_resolve_tool_tier_unknown_defaults_optional()` 参数逐条解释**：无参数，直接断言 `resolve_tool_tier("no_such_tool")`、`resolve_tool_tier("")`、`resolve_tool_tier(None)` 三者都等于 `"optional"`。
+
+**落库要点**：`None` 的断言特别重要——实参类型不是 str，防止有人把签名改成 `name: str` 后忘了处理 None。钉死"未知工具不会被炸成异常、也不会排到核心层"。
 
 ### 块 7：test_tier_label_zh —— 中文标签
 
@@ -182,19 +206,23 @@ def test_tier_label_zh():
     assert tool_tier_label_zh("unknown") == "扩展可选"
 ```
 
-**整块解析**：tier 的中文展示层验证。`core` → "日常常驻"（核心工具常驻可用）、`unknown` → "扩展可选"（兜底层的展示名）。注意入参是 `"unknown"` 而不是 `"optional"`——标签函数对**未知 tier 名**的兜底是"扩展可选"，这本身也是展示层容错的验证。
+**结构简析**：tier 的中文展示层验证。
+
+**`test_tier_label_zh()` 参数逐条解释**：无参数，直接断言 `tool_tier_label_zh("core") == "日常常驻"`、`tool_tier_label_zh("unknown") == "扩展可选"`。
+
+**落库要点**：入参是 `"unknown"` 而不是 `"optional"`——标签函数对**未知 tier 名**的兜底是"扩展可选"，这本身也是展示层容错的验证。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 `get_builtin_tools` 带 lru_cache 时，改工具定义要清缓存？（2026-10-01 用户提问）
+### 1. 为什么 `get_builtin_tools` 带 lru_cache 时，改工具定义要清缓存？（2026-10-01 用户提问）
 
 **一句话**：`lru_cache` 让第一次调用后的结果被缓存复用——改完工具模块里的定义，下一次 `get_builtin_tools()` 仍返回旧工具集，测试/运行都会"看起来没改"。tools.py 风险点写明：改工具定义后需清缓存才能生效（重启进程或 `get_builtin_tools.cache_clear()`）。
 
-### 为什么数量断言是 `== 9` 而名字断言是子集？
+### 2. 为什么数量断言是 `== 9` 而名字断言是子集？
 
 **一句话**：`len == 9` 是**当前版本快照**（M2 5 + M4 4），加新工具时主动改这个数——它是"你意识到工具集变了"的提醒；名字用 `<=`（子集）保证只断言"必含"，未来加工具不破坏本测试。一个锁总量、一个容增量，各司其职。
 
-### tier 排序为什么用"权重非递减"而不是"断言具体顺序"？
+### 3. tier 排序为什么用"权重非递减"而不是"断言具体顺序"？
 
 **一句话**：具体顺序 = 权重表的实现细节，权重表调整（比如把某工具从 workspace 升到 core）时，只要整体仍单调，工具集就是"分层有序"的。断言"非递减"测的是**排序机制**，断言具体顺序会把机制测试和配置测试耦合在一起。
 
@@ -205,3 +233,4 @@ def test_tier_label_zh():
 3. `resolve_tool_tier(None)` 的断言依赖函数对 None 的容错——签名若改成 `name: str`（不含 None），此用例先红，提醒同时更新调用方。
 ---
 _2026-10-01 新建：tests 测试文档（用例级验收对照，对齐 doc-code 规范：目录/结构图/流程图/成块代码解析/Q&A/风险点）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

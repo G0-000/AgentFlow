@@ -87,7 +87,11 @@ from agentflow.subagents import (
 from agentflow.subagents.config import SubagentConfig
 ```
 
-**整块解析**：从 `agentflow.subagents` 包入口取三个公开函数（`__init__.py` 统一导出），`SubagentConfig` 用于 `isinstance` 类型断言。测试不 import registry 内部细节，只走公开 API——这正是"测契约不测实现"的体现。
+**结构简析**：从 `agentflow.subagents` 包入口取三个公开函数，`SubagentConfig` 用于 `isinstance` 类型断言。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：测试不 import registry 内部细节，只走公开 API——这正是"测契约不测实现"的体现。
 
 ### 块 2：test_get_general_purpose_config —— 通用子代理字段完整性
 
@@ -103,7 +107,11 @@ def test_get_general_purpose_config():
     assert cfg.timeout_seconds > 0
 ```
 
-**整块解析**：验收点 1 的核心用例。`isinstance` 先保证返回的是配置对象而非 None；随后逐字段断言：`name` 正确、`model="inherit"`（M4 只支持继承父模型）、`tools is None`（白名单不生效，继承父级全部）、执行上限为正数。任何字段默认值被改动都会在这里暴露。
+**结构简析**：验收点 1 的核心用例——内置通用子代理能查到，字段完整。
+
+**`test_get_general_purpose_config()` 参数逐条解释**：无参数，直接断言 `get_subagent_config("general-purpose")` 返回的是 `SubagentConfig` 实例，且 `name=="general-purpose"`、`model=="inherit"`、`tools is None`、`max_turns>0`、`timeout_seconds>0`。
+
+**落库要点**：`isinstance` 先保证返回配置对象而非 None；逐字段断言——`tools is None` 即白名单不生效、继承父级全部。任何字段默认值被改动都会在这里暴露。
 
 ### 块 3：test_get_bash_config_whitelist —— bash 最小权限
 
@@ -115,7 +123,11 @@ def test_get_bash_config_whitelist():
     assert cfg.tools == ["terminal_run"]
 ```
 
-**整块解析**：bash 是白名单收敛的典型——`tools == ["terminal_run"]` 精确等于列表，不是子集断言。这钉死"bash 只给终端工具"的最小权限原则：未来谁给 bash 加文件工具，此测试先红。
+**结构简析**：bash 白名单收敛的典型验证——bash 只给终端工具。
+
+**`test_get_bash_config_whitelist()` 参数逐条解释**：无参数，直接断言 `get_subagent_config("bash")` 非 None 且 `cfg.tools == ["terminal_run"]`。
+
+**落库要点**：用精确等于列表而非子集断言，钉死"bash 只给终端工具"的最小权限原则——未来谁给 bash 加文件工具，此测试先红。
 
 ### 块 4：test_get_unknown_config_returns_none —— 未知名不炸
 
@@ -125,7 +137,11 @@ def test_get_unknown_config_returns_none():
     assert get_subagent_config("no-such-agent") is None
 ```
 
-**整块解析**：注册表查表对未知名的返回契约是 `None` 而非抛异常。dispatch 工具拿到 None 走"子代理未配置"友好提示分支（dispatch_tool.py 有对应逻辑），这条测试防止有人把查表改成抛错。
+**结构简析**：注册表查表对未知名的返回契约——返回 `None` 而非抛异常。
+
+**`test_get_unknown_config_returns_none()` 参数逐条解释**：无参数，直接断言 `get_subagent_config("no-such-agent") is None`。
+
+**落库要点**：dispatch 工具拿到 None 走"子代理未配置"友好提示分支（dispatch_tool.py 有对应逻辑）——这条测试防止有人把查表改成抛错。
 
 ### 块 5：test_list_subagents_covers_builtins —— 枚举覆盖内置
 
@@ -138,7 +154,11 @@ def test_list_subagents_covers_builtins():
     assert len(list_subagents()) >= 2
 ```
 
-**整块解析**：枚举链路（验收点 1 第二半）。`get_subagent_names()` 返回名字列表，断言两个内置子代理都在；`list_subagents()` 返回配置列表，断言至少 2 个。`>= 2` 而不是 `== 2`——允许未来加新内置子代理不破坏此测试。
+**结构简析**：枚举链路（验收点 1 第二半）——注册表能枚举到内置子代理。
+
+**`test_list_subagents_covers_builtins()` 参数逐条解释**：无参数，直接断言 `get_subagent_names()` 里含 `"general-purpose"` 和 `"bash"`，且 `len(list_subagents()) >= 2`。
+
+**落库要点**：`>= 2` 而不是 `== 2`——允许未来加新内置子代理不破坏此测试。
 
 ### 块 6：test_default_disallowed_tools_prevent_recursion —— 防递归是硬约束
 
@@ -150,17 +170,21 @@ def test_default_disallowed_tools_prevent_recursion():
     assert "ask_clarification" in (cfg.disallowed_tools or [])
 ```
 
-**整块解析**：验证 config.py 默认黑名单三件套中的两件必在（`or []` 兜底 None）。`dispatch_subagents` 防子代理再派子代理（无限嵌套），`ask_clarification` 防子代理反问用户。这是"默认值不可删"的自动化守护——谁清了黑名单，这条立刻红。
+**结构简析**：验证 config.py 默认黑名单防递归是硬约束——默认黑名单必含派发类工具。
+
+**`test_default_disallowed_tools_prevent_recursion()` 参数逐条解释**：无参数，直接断言 `get_subagent_config("general-purpose")` 的 `disallowed_tools`（`or []` 兜底）里含 `"dispatch_subagents"` 和 `"ask_clarification"`。
+
+**落库要点**：`dispatch_subagents` 防子代理再派子代理（无限嵌套），`ask_clarification` 防子代理反问用户。这是"默认值不可删"的自动化守护——谁清了黑名单，这条立刻红。
 
 ## ❓ Q&A / 知识点
 
-### 为什么未知子代理返回 None 而不是报错？（2026-10-01 用户提问）
+### 1. 为什么未知子代理返回 None 而不是报错？（2026-10-01 用户提问）
 
 **一句话**：None 是"查不到"的显式表达，dispatch 工具拿到后给用户友好提示（"子代理 X 未配置"），而不是让整个派发流程崩溃。
 
 **依据源码**：registry.py `get_subagent_config` 对 `_SUBAGENT_MAP.get(name)` 未命中返回 None；dispatch_tool.py 里 `cfg = get_subagent_config(...)` 后 `if cfg is None: return 友好提示`。
 
-### 为什么黑名单断言用 `(cfg.disallowed_tools or [])` 而不是直接 `cfg.disallowed_tools`？
+### 2. 为什么黑名单断言用 `(cfg.disallowed_tools or [])` 而不是直接 `cfg.disallowed_tools`？
 
 **一句话**：`disallowed_tools` 类型是 `list[str] | None`，万一未来某配置显式传 None（清空黑名单），`in None` 会 TypeError。`or []` 让 None 安全降级为空列表，断言只判断"必含项在不在"。
 
@@ -170,3 +194,4 @@ def test_default_disallowed_tools_prevent_recursion():
 2. `tools == ["terminal_run"]` 是精确相等：给 bash 加任何工具都会红——这是有意的（最小权限），不是测试写死了。
 ---
 _2026-10-01 新建：tests 测试文档（用例级验收对照，对齐 doc-code 规范：目录/结构图/流程图/成块代码解析/Q&A/风险点）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

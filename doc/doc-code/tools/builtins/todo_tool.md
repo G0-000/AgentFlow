@@ -146,7 +146,11 @@ class TodoStatus(str, Enum):
     CANCELLED = "cancelled"
 ```
 
-**整块解析**：依赖五样——`dataclass/field`（定义待办数据类）、`UTC/datetime`（生成时间戳）、`Enum`（状态枚举）、`Literal`（参数枚举标注）、`tool`（LangChain 装饰器）。`TodoStatus(str, Enum)` 是**字符串枚举**：继承 str 后，枚举值本身就是字符串（`TodoStatus.PENDING.value == "pending"`），存进 dataclass 和返回给模型都无需转换。四个状态：pending（待办）/ in_progress（进行中）/ done（完成）/ cancelled（取消）。
+**结构简析**：依赖五样——`dataclass/field`（定义待办数据类）、`UTC/datetime`（生成时间戳）、`Enum`（状态枚举）、`Literal`（参数枚举标注）、`tool`（LangChain 装饰器）。`TodoStatus(str, Enum)` 是**字符串枚举**：继承 str 后，枚举值本身就是字符串（`TodoStatus.PENDING.value == "pending"`），存进 dataclass 和返回给模型都无需转换。
+
+本块是 imports + 枚举类定义，无待展开参数的函数，不展开参数表。
+
+**补充**：四个状态——pending（待办）/ in_progress（进行中）/ done（完成）/ cancelled（取消）。
 
 ### 块 2：`TodoItem` 数据类 + 模块级存储 + 单条格式化
 
@@ -167,7 +171,15 @@ def _format_todo(item: TodoItem) -> str:
     return f"- [{item.status}] {item.title}（{item.id}）"
 ```
 
-**整块解析**：`TodoItem` 四个字段——`id/title` 必填，`status` 默认 pending，`created_at` 用 `field(default_factory=...)` **惰性**生成 UTC ISO 时间戳（秒级）——不写 `datetime.now(...)` 做默认值是为了避免类定义期固定求值。`_todos` 是**模块级全局 dict**（进程内所有会话共享一个池，M2 简化，原版按 thread_id 分桶）。`_format_todo` 把单条待办渲染成一行 `- [status] title（id）`，专供 list 展示。
+**结构简析**：`TodoItem` 四个字段——`id/title` 必填，`status` 默认 pending，`created_at` 用 `field(default_factory=...)` **惰性**生成 UTC ISO 时间戳（秒级）——不写 `datetime.now(...)` 做默认值是为了避免类定义期固定求值。`_todos` 是模块级全局 dict。`_format_todo` 把单条待办渲染成一行。
+
+**`_format_todo()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `item` | `TodoItem` | 必填 | 单条待办对象；渲染成一行 `- [{item.status}] {item.title}（{item.id}）`，专供 list 展示 |
+
+**落库要点**：`_todos: dict[str, TodoItem] = {}` 是会话级内存存储（原版按 thread_id 分桶，M2 简化为进程内所有会话共享一个池）；进程重启即清空。
 
 ### 块 3：`_TODO_DESCRIPTION` —— 给模型看的说明书
 
@@ -180,7 +192,11 @@ update=改状态（id + status: pending/in_progress/done/cancelled）；delete=�
 """
 ```
 
-**整块解析**：与 clarification 工具同款——这段字符串不是注释，是注入 system prompt 给模型的说明书：什么时候用（列待办/记待办/问进度）、四个动作各要什么参数（add 要 title；update 要 id+status；delete 要 id）。`"""\` 换行写法保留首行后直接接内容。改措辞 = 改模型何时调本工具（风险点 3）。
+**结构简析**：与 clarification 工具同款——这段字符串不是注释，是注入 system prompt 给模型的说明书：什么时候用（列待办/记待办/问进度）、四个动作各要什么参数（add 要 title；update 要 id+status；delete 要 id）。
+
+本块是模块级常量字符串，无函数签名，不展开参数表。
+
+**补充**：作为 `@tool` 的 `description=` 传入；改措辞 = 改模型何时调本工具（风险点 3）。
 
 ### 块 4：`@tool` 装饰器 + 函数签名
 
@@ -195,7 +211,19 @@ def todo_tool(
 ) -> str:
 ```
 
-**整块解析**：装饰器注册工具名 `"todo"`、绑定说明书、`parse_docstring=False`（不用 docstring 生成 schema，全靠 description）、`return_direct=True`（结果直回用户）。五个参数全由 LangChain 转成 JSON schema 卡模型：`action` 四选一默认 list；`item/id/title` 可选字符串；`status` 四态枚举默认 pending。注意 `item` 与 `title` 并存是兼容写法——add 时 `title or item` 兜底。
+**结构简析**：装饰器注册工具名 `"todo"`、绑定说明书、`parse_docstring=False`（不用 docstring 生成 schema，全靠 description）、`return_direct=True`（结果直回用户）。五个参数全由 LangChain 转成 JSON schema 卡模型。
+
+**`todo_tool()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `action` | `Literal["add", "list", "update", "delete"]` | `"list"` | 动作：`add`=新增（title 必填）；`list`=列出全部（默认）；`update`=按 id 改状态；`delete`=按 id 删除 |
+| `item` | `str \| None` | `None` | add 时的标题兼容位；`title or item` 兜底（模型老写法传 item 也能接住） |
+| `id` | `str \| None` | `None` | update/delete 用；add 时缺省自动生成 `todo-{len(_todos)+1}` |
+| `title` | `str \| None` | `None` | add 时的待办标题；`title or item or "未命名待办"` 三层兜底 |
+| `status` | `Literal["pending", "in_progress", "done", "cancelled"]` | `"pending"` | update 时的目标状态，四态枚举；add 时新建条目固定 pending |
+
+**补充**：`item` 与 `title` 并存是兼容写法——add 时 `title or item` 兜底。
 
 ### 块 5：函数体 —— 四动作分支调度
 
@@ -221,8 +249,12 @@ def todo_tool(
     return "未知动作，可选: add/list/update/delete"
 ```
 
-**整块解析**：四个 `if` 顺序分支，每个分支都**返回字符串**（工具统一返回文本）：
-- `add`：id 缺省自动生成 `todo-{len(_todos)+1}`（注意：删除后 len 变小，id 可能复用，风险点 2）；title 三层兜底 `title or item or "未命名待办"`。
+**结构简析**：四个 `if` 顺序分支，每个分支都**返回字符串**（工具统一返回文本）。
+
+本块是块 4 已签名函数的函数体，参数同 `todo_tool()`（见块 4），不重复造表。
+
+**落库要点**：
+- `add`：id 缺省自动生成 `todo-{len(_todos)+1}`（删除后 len 变小，id 可能复用，风险点 2）；写 `_todos[t.id] = t`，title 三层兜底 `title or item or "未命名待办"`。
 - `list`：空 dict 返回占位"（暂无待办）"，否则 join 所有 `_format_todo` 结果。
 - `update`：`.get(id or "")` 取条目，不存在报"待办不存在"；存在就**原地改 `t.status`**（TodoItem 是可变 dataclass，直接改字段）。
 - `delete`：`.pop(id or "", None)` 原子删除，按是否拿到条目分别返回成功/不存在文案。
@@ -282,3 +314,4 @@ A: 链路三步，职责分离清晰：
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：todo_tool.py 头部注释 + 顶层符号。_
 _2026-09-30 追加：Q&A 归档区（模型读懂→tool_calls→解析执行三步链路，用户提问自动归纳）。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

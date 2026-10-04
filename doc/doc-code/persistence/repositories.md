@@ -112,7 +112,9 @@ from abc import ABC, abstractmethod
 from agentflow.persistence.db import connect
 ```
 
-**整块解析**：四个依赖各有分工——`sqlite3`（类型标注）、`threading.local`（线程隔离连接的关键）、`abc.ABC`/`abstractmethod`（把基类变成"约束子类实现哪些方法"的抽象模板）、`connect`（复用语境：新线程建连接时仍走 db.py 的统一配置）。注意子类在 db_path 模式下新建连接时，调的也是这个 `connect`——保证 WAL/外键/Row 不丢。
+**结构简析**：四个依赖各有分工——`sqlite3`（类型标注）、`threading.local`（线程隔离连接的关键）、`abc.ABC`/`abstractmethod`（把基类变成「约束子类实现哪些方法」的抽象模板）、`connect`（新线程建连接时仍走 db.py 的统一配置）。
+
+**补充**：子类在 db_path 模式下新建连接时，调的也是这个 `connect`——保证 WAL/外键/Row 不丢。
 
 ### 块 2：`BaseRepository` 类 docstring + `__init__` —— 双连接策略
 
@@ -133,7 +135,14 @@ class BaseRepository(ABC):
         self._local = threading.local()
 ```
 
-**整块解析**：构造器接受二选一——`conn`（主线程直接复用已建好的连接）或 `db_path`（交给基类按线程建连接）。`self._local = threading.local()` 是线程安全的核心：它是一个"每个线程各有独立属性槽"的对象，后续 db_path 模式下把每个线程的连接存在里面，互不串线。这是 P-018 修复的产物——SQLite 连接不能跨线程共用，而 LangGraph 工具在后台线程跑 SQL。
+**结构简析**：构造器接受二选一——`conn`（主线程直接复用已建好的连接）或 `db_path`（交给基类按线程建连接）；`self._local = threading.local()` 是线程安全的核心（每个线程各有独立属性槽）。这是 P-018 修复的产物——SQLite 连接不能跨线程共用，而 LangGraph 工具在后台线程跑 SQL。
+
+**`__init__()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `conn` | `sqlite3.Connection \| None` | `None` | 主线程直接注入已建好的连接（CLI 会话 repo 等简单场景）；与 `db_path` 二选一 |
+| `db_path` | `str \| None` | `None` | 数据库路径，走线程本地连接模式（LangGraph 工具在后台线程跑 SQL）；每个线程从 `threading.local` 取/建连接 |
 
 ### 块 3：`conn` 属性 —— 按当前线程取连接
 
@@ -156,7 +165,11 @@ class BaseRepository(ABC):
         return self._conn
 ```
 
-**整块解析**：这是"连接归属"的裁决处——① 若走 db_path 模式：先从 `threading.local` 取当前线程的连接，取不到才 `connect()` 新建并存回，实现"每线程一连接、复用不重建"；② 否则走 conn 模式，若既没 db_path 又没注入 conn，直接 `raise RuntimeError` 明确报错（而不是悄悄开个坏连接）。所有子类写 SQL 时都通过这个属性拿连接，线程安全因此被收口在一处。
+**结构简析**：这是「连接归属」的裁决处——① 若走 db_path 模式：先从 `threading.local` 取当前线程的连接，取不到才 `connect()` 新建并存回，实现「每线程一连接、复用不重建」；② 否则走 conn 模式，若既没 db_path 又没注入 conn，直接 `raise RuntimeError` 明确报错（而不是悄悄开个坏连接）。
+
+**`conn` property 参数逐条解释**：无参数，按 `self._db_path` / `self._conn` 取当前线程可用的连接。
+
+**落库要点/补充**：所有子类写 SQL 时都通过这个属性拿连接，线程安全因此被收口在一处。
 
 ### 块 4：抽象 `table_name` + 统一执行器 —— 写 commit / 读不 commit
 
@@ -182,7 +195,30 @@ class BaseRepository(ABC):
         return self.conn.execute(sql, params).fetchall()
 ```
 
-**整块解析**：三件套收拢样板——`_execute` 专管写，执行后**统一 commit**（"漏 commit 是 SQLite 最常见 bug"，集中处理就不会漏）；`_fetch_one`/`_fetch_all` 专管读，**不 commit**（读不该触发写事务）。`table_name` 是抽象 property，强制子类声明自己管哪张表。子类业务方法只写业务 SQL，把执行/commit/查询都委托给这三个方法。
+**结构简析**：三件套收拢样板——`_execute` 专管写，执行后**统一 commit**；`_fetch_one`/`_fetch_all` 专管读，**不 commit**（读不该触发写事务）；`table_name` 是抽象 property，强制子类声明自己管哪张表。子类业务方法只写业务 SQL，把执行/commit/查询都委托给这三个方法。
+
+**`_execute(sql, params)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `sql` | `str` | 必填 | 写 SQL（INSERT/UPDATE/DELETE/DDL）；执行后统一 `conn.commit()` |
+| `params` | `tuple` | `()` | SQL 占位符 `?` 对应的参数元组 |
+
+**`_fetch_one(sql, params)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `sql` | `str` | 必填 | 查询单行的 SELECT；只 `execute().fetchone()`，**不 commit** |
+| `params` | `tuple` | `()` | SQL 占位符 `?` 对应的参数元组 |
+
+**`_fetch_all(sql, params)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `sql` | `str` | 必填 | 查询多行的 SELECT；只 `execute().fetchall()`，**不 commit** |
+| `params` | `tuple` | `()` | SQL 占位符 `?` 对应的参数元组 |
+
+**落库要点/补充**：「漏 commit 是 SQLite 最常见 bug」——集中在 `_execute` 兜底就不会漏；只读操作不要用 `_execute`（会无谓 commit）。
 
 ### 块 5：抽象 CRUD —— 约束子类必须实现的接口
 
@@ -198,11 +234,19 @@ class BaseRepository(ABC):
     def delete(self, row_id: str) -> None: ...  # 按主键删除
 ```
 
-**整块解析**：三个 `@abstractmethod` 是 ABC 的硬约束——子类不实现 `create`/`get`/`delete` 就**无法实例化**（实例化即报错），从机制上保证"每张表的 repo 至少有这三个基本操作"。方法体用 `...`（Ellipsis）占位，具体 SQL 由子类（如 SessionRepository）填写。
+**结构简析**：三个 `@abstractmethod` 是 ABC 的硬约束——子类不实现 `create`/`get`/`delete` 就**无法实例化**（实例化即报错），从机制上保证「每张表的 repo 至少有这三个基本操作」；方法体用 `...`（Ellipsis）占位，具体 SQL 由子类（如 SessionRepository）填写。
+
+**抽象 CRUD 参数逐条解释**：
+
+| 方法 | 参数 | 类型 | 含义 |
+|---|---|---|---|
+| `create` | `**kwargs` | `dict` | 新增一行；字段由子类（如 SessionRepository.create）定义 |
+| `get` | `row_id` | `str` | 按主键取一行，返回 `sqlite3.Row \| None` |
+| `delete` | `row_id` | `str` | 按主键删除，返回 `None` |
 
 ## ❓ Q&A / 知识点
 
-### 为什么 db_path 模式要用 `threading.local`，而不是共享一条连接？
+### 1. 为什么 db_path 模式要用 `threading.local`，而不是共享一条连接？
 
 **一句话**：SQLite 连接不能跨线程共用；`threading.local` 让"每个后台线程持有自己的连接"，既线程安全又能复用（同线程不重复建连）。
 
@@ -214,7 +258,7 @@ class BaseRepository(ABC):
 
 这也是为什么构造器同时支持 `conn`（主线程简单场景直接注入）与 `db_path`（后台线程自动建连）两种模式。
 
-### 为什么读操作（_fetch_one/_fetch_all）不 commit？
+### 2. 为什么读操作（_fetch_one/_fetch_all）不 commit？
 
 **一句话**：commit 是把"写事务"落盘；纯 SELECT 不修改数据库，commit 它既无意义又徒增一次写开销。
 
@@ -228,3 +272,4 @@ class BaseRepository(ABC):
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：repositories.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

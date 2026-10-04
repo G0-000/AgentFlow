@@ -53,10 +53,15 @@ from __future__ import annotations
 
 import argparse
 import os
+import queue
+from datetime import UTC, datetime
 from pathlib import Path
 
 # dotenv: 读取项目根 .env 到环境变量（密钥不写进 yaml/代码）
 from dotenv import load_dotenv
+
+# M5 域：定时调度（手写 cron + daemon tick 线程）/ 定时任务持久化
+from langchain_core.messages import HumanMessage
 
 from agentflow.agents.checkpointer.provider import create_sqlite_checkpointer
 
@@ -78,9 +83,11 @@ from agentflow.memory.facade import MemoryFacade
 
 # 模型域（工厂）
 from agentflow.models.factory import create_chat_model
+from agentflow.persistence.automation_repositories import AutomationRepository
 
 # 持久化域（建表 / 会话 repo）
 from agentflow.persistence.bootstrap import init_db
+from agentflow.persistence.goal_repositories import GoalRepository
 from agentflow.persistence.knowledge_repositories import KnowledgeRepository
 from agentflow.persistence.memory_repositories import MemoryRepository
 from agentflow.persistence.sandbox_audit_repositories import SandboxAuditRepository
@@ -92,6 +99,8 @@ from agentflow.sandbox import (
     get_sandbox_provider,
     set_sandbox_provider,
 )
+from agentflow.scheduler.cron import normalize_schedule
+from agentflow.scheduler.loop import AutomationScheduler
 
 # skills 加载 + knowledge 工具注入（M3）
 from agentflow.skills.loader import build_skills_prompt
@@ -108,15 +117,53 @@ from agentflow.tools.builtins.terminal_tool import (
 # 工具域（M2）：工具收集 + 结果存取
 from agentflow.tools.tools import get_available_tools
 
+# 核心域（并行 shard）：GoalEngine 落点可能在 agents/goal 或顶层 goal，两者兼容
+try:  # pragma: no cover
+    from agentflow.agents.goal.goal_loop import GoalEngine
+except ImportError:  # pragma: no cover
+    from agentflow.goal.goal_loop import GoalEngine
+
 
 def _parse_args() -> argparse.Namespace:
-    """命令行参数: --thread 复用会话（验证持久化的入口）。"""
+    """命令行参数: --thread 复用会话；M5 加 --goal 长任务入口 + automation 子命令族。"""
     p = argparse.ArgumentParser(description="AgentFlow 终端对话")
     p.add_argument(
         "--thread",
         default=None,  # 缺省 = 新会话（自动生成 thread_id）
         help="复用指定会话 ID（thread_id），继续上次对话",
     )
+    p.add_argument(
+        "--goal",
+        default=None,  # 缺省 = 普通 REPL
+        help="启动后先以长任务模式跑 GoalEngine（计划→逐步→汇总），完成后再进 REPL",
+    )
+
+    # M5：automation 定时任务子命令族（无子命令 = 进 REPL 默认行为）
+    sub = p.add_subparsers(dest="command")
+    pa = sub.add_parser("automation", help="定时任务管理（list/create/pause/resume/delete）")
+    auto = pa.add_subparsers(dest="auto_action")
+
+    auto.add_parser("list", help="列出全部定时任务")
+
+    pc = auto.add_parser("create", help="创建定时任务")
+    pc.add_argument("--name", default="", help="任务名（展示用）")
+    pc.add_argument("--prompt", required=True, help="到点投递的提示词")
+    pc.add_argument("--cron", default=None, help='标准 5 字段 cron，如 "*/1 * * * *"')
+    pc.add_argument(
+        "--schedule",
+        default=None,
+        help='自然语言调度，如 "每天9点"（与 --cron 二选一，经 normalize 归一）',
+    )
+    pc.add_argument("--once", action="store_true", help="一次性任务（配 --at）")
+    pc.add_argument("--at", default=None, help='once 型目标时间 ISO，如 "2026-10-03T09:00:00"')
+
+    pp = auto.add_parser("pause", help="暂停任务")
+    pp.add_argument("auto_id", help="任务 task_id")
+    pr = auto.add_parser("resume", help="恢复任务")
+    pr.add_argument("auto_id", help="任务 task_id")
+    pd = auto.add_parser("delete", help="删除任务（runs 历史保留）")
+    pd.add_argument("auto_id", help="任务 task_id")
+
     return p.parse_args()
 
 
@@ -147,6 +194,63 @@ def _iter_chunk_messages(chunk: dict) -> list:
     return []
 
 
+def _handle_automation_command(args: argparse.Namespace) -> None:
+    """M5 automation 子命令族：list/create/pause/resume/delete。
+
+    轻量装配（只建 db + AutomationRepository，不建模型/agent/checkpointer），
+    执行完即返回退出，不进 REPL。
+    """
+    db_path = default_db_path()
+    init_db(db_path)
+    auto_repo = AutomationRepository(db_path=db_path)
+    action = getattr(args, "auto_action", None)
+
+    if action == "list":
+        rows = auto_repo.list()
+        if not rows:
+            print("（无定时任务）")
+            return
+        for r in rows:
+            print(
+                f"{r['task_id']}  {r['name'] or '(未命名)'}  "
+                f"cron={r['schedule']}  type={r['schedule_type']}  "
+                f"status={r['status']}  runs={r['run_count']}  "
+                f"last={r['last_run'] or '-'}"
+            )
+        return
+
+    if action == "create":
+        raw = args.cron or args.schedule or ""  # 缺省两者都没有 → normalize 走兜底
+        schedule = normalize_schedule(raw)
+        task_id = "t_" + os.urandom(6).hex()
+        schedule_type = "once" if args.once else "recurring"
+        scheduled_at = args.at if args.once else None
+        auto_repo.create(
+            task_id=task_id,
+            name=args.name or "",
+            prompt=args.prompt,
+            schedule=schedule,
+            schedule_type=schedule_type,
+            scheduled_at=scheduled_at,
+        )
+        print(f"已创建定时任务 {task_id}（cron={schedule}，type={schedule_type}）")
+        return
+
+    if action in ("pause", "resume", "delete"):
+        tid = args.auto_id
+        if action == "pause":
+            auto_repo.pause(tid)
+        elif action == "resume":
+            auto_repo.resume(tid)
+        else:
+            auto_repo.delete(tid)
+        zh = {"pause": "暂停", "resume": "恢复", "delete": "删除"}[action]
+        print(f"已{zh}任务 {tid}")
+        return
+
+    print("用法: agentflow automation list|create|pause|resume|delete ...")
+
+
 def main() -> None:
     """CLI 入口：装配所有组件，进入对话循环。"""
     args = _parse_args()  # ① 解析命令行：--thread 复用会话
@@ -155,6 +259,11 @@ def main() -> None:
     #    config.yaml 里 ${DEEPSEEK_API_KEY} 由 models_yaml 在此之后展开
     project_root = Path(__file__).resolve().parents[5]
     load_dotenv(project_root / ".env")
+
+    # M5：automation 子命令族——轻量装配（无需模型/API key），执行完直接退出，不进 REPL
+    if getattr(args, "command", None) == "automation":
+        _handle_automation_command(args)
+        return
 
     # ③ 配置：config.yaml → AppConfig（路径/日志/模型）
     #    对齐原版：固定用项目根 config.yaml（Path(__file__).parents[N] 向上找），
@@ -226,6 +335,16 @@ def main() -> None:
     thread_id = args.thread or _generate_thread_id()
     sessions.create(thread_id)
 
+    # M5：定时调度 + 长任务装配
+    #    auto_repo/goal_repo 用 db_path 模式（P-018）：scheduler 是 daemon 线程，
+    #    线程本地连接，绝不共享主线程注入的 conn；tick 只扫库+入队，不碰模型。
+    goal_repo = GoalRepository(db_path=db_path)
+    auto_repo = AutomationRepository(db_path=db_path)
+    q = queue.Queue()
+    scheduler = AutomationScheduler(auto_repo, q, interval=60)
+    scheduler.start()
+    engine = GoalEngine(agent, model, goal_repo)
+
     # ⑫ 启动信息：让控制台一眼看清"用的哪个模型 / 供应商 / 会话 / 数据 / 工具"
     #    （需求：之前只显示会话 ID 太少；模型信息对调试很关键，P-014/015/016 都要靠它）
     reuse = "续用历史会话" if args.thread else "新会话"
@@ -240,12 +359,72 @@ def main() -> None:
     print(f"子代理: {', '.join(get_subagent_names())}（并行 ≤3）")  # M4
     print(f"审计: {sandbox_audit.count()} 条")  # M4
     print(f"会话: {thread_id}（{reuse}；--thread {thread_id} 可继续此会话）")
+    print(f"定时: {len(auto_repo.list_active())} 条 active（tick 60s）")  # M5
     print(f"数据: {db_path}")
     print("输入 exit 退出\n")
+
+    # M5：断点恢复——该 thread 上有未完成长任务则从下一步续跑（已完成步不重跑）
+    active_goal = goal_repo.get_active_by_thread(thread_id)
+    if active_goal and active_goal["goal_status"] in (
+        "planning",
+        "planned",
+        "executing",
+        "paused",
+    ):
+        print(
+            f"[恢复] 长任务继续：第 {active_goal['completed_steps'] + 1}/"
+            f"{active_goal['max_steps']} 步"
+        )
+        engine.resume(thread_id)
+
+    # M5：--goal 长任务入口：先跑 GoalEngine（计划→逐步→汇总），完成后再进 REPL
+    if args.goal:
+        engine.start(thread_id, args.goal)
 
     # ⑬ 对话循环
     first_turn = True
     while True:
+        # M5：每轮 input 之前先非阻塞 drain 定时队列——命中即在主线程同步执行；
+        #     scheduler daemon 线程绝不触碰 agent/模型（R6：单线程 CLI，执行期间用户等待）
+        while True:
+            try:
+                task_id, prompt = q.get_nowait()
+            except queue.Empty:
+                break
+            run_id = auto_repo.start_run(task_id)
+            task_row = auto_repo.get(task_id) or {}
+            tname = task_row.get("name") or task_id
+            print(f"⏰ 定时触发: {tname}")
+            t0 = datetime.now(UTC)
+            run_status = "success"
+            try:
+                resp = agent.invoke(
+                    {"messages": [HumanMessage(prompt)]},
+                    config={"configurable": {"thread_id": f"auto-{task_id}"}},
+                )
+                msgs = (
+                    resp.get("messages") if isinstance(resp, dict) else getattr(resp, "messages", [])
+                )
+                out_text = msgs[-1].content if msgs else ""
+                auto_repo.finish_run(
+                    run_id,
+                    status="success",
+                    output=out_text,
+                    duration_seconds=(datetime.now(UTC) - t0).total_seconds(),
+                )
+                run_status = "success"
+                print(f"Agent > {out_text}")
+            except Exception as exc:  # noqa: BLE001 —— 单次定时任务失败不崩 REPL
+                auto_repo.finish_run(run_id, status="failed", error=str(exc)[:300])
+                run_status = "failed"
+                print(f"[定时任务失败] {str(exc)[:200]}")
+            auto_repo.touch_last_run(
+                task_id,
+                last_status=run_status,
+                run_count_inc=1,
+                once_fired=1 if task_row.get("schedule_type") == "once" else None,
+            )
+
         try:
             user_input = input("你 > ").strip()
         except (EOFError, KeyboardInterrupt):

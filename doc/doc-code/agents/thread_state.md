@@ -98,7 +98,9 @@ from langchain.agents import AgentState
 from typing_extensions import TypedDict
 ```
 
-**整块解析**：四个 import——`NotRequired`（可选字段标注）、langchain 官方 `AgentState`（状态基类，**自带 messages + add_messages 追加 reducer**）、`TypedDict`（typing_extensions，SandboxState 用）。继承 `AgentState` 而不是自己从零写 TypedDict，是为了白嫖官方维护好的 messages reducer 语义。
+**结构简析**：四个 import——`NotRequired`（可选字段标注）、langchain 官方 `AgentState`（状态基类，**自带 messages + add_messages 追加 reducer**）、`TypedDict`（typing_extensions，SandboxState 用）。
+
+**补充**：继承 `AgentState` 而不是自己从零写 TypedDict，是为了白嫖官方维护好的 messages reducer 语义。
 
 ### 块 2：`ThreadState` —— 图共享状态
 
@@ -118,7 +120,11 @@ class ThreadState(AgentState):
     thread_id: str
 ```
 
-**整块解析**：`ThreadState(AgentState)` 继承官方基类，白嫖 `messages`（带 `add_messages` 追加 reducer），只加一个自有字段 `thread_id: str`——会话标识，checkpointer 按它在 SQLite 分桶存/取历史状态。docstring 明确：messages 的 reducer 语义由基类维护，不重复造轮子。**注意**：M1-M2 实际 create_agent 用的是内置 messages 状态，本类是为工具复杂化后预留的自定义状态（见风险点 1）。
+**结构简析**：`ThreadState(AgentState)` 继承官方基类，白嫖 `messages`（带 `add_messages` 追加 reducer），只加一个自有字段 `thread_id: str`。docstring 明确：messages 的 reducer 语义由基类维护，不重复造轮子。
+
+**字段说明**：`thread_id: str`——会话标识，checkpointer 按它在 SQLite 分桶存/取历史状态，是恢复会话的依据。
+
+**补充**：M1-M2 实际 create_agent 用的是内置 messages 状态，本类是为工具复杂化后预留的自定义状态（见风险点 1）。
 
 ### 块 3：`SandboxState` —— M4 占位
 
@@ -129,15 +135,19 @@ class SandboxState(TypedDict):
     sandbox_id: NotRequired[str | None]
 ```
 
-**整块解析**：独立的 `TypedDict`（不继承 AgentState），只有一个可选字段 `sandbox_id: NotRequired[str | None]`。docstring 明说：对齐原版结构，**M4 沙箱功能才用，M1 只占位不启用**——当前没有任何代码消费它，提前放着是为了结构对齐原版。
+**结构简析**：独立的 `TypedDict`（不继承 AgentState），只有一个可选字段 `sandbox_id: NotRequired[str \| None]`。
+
+**字段说明**：`sandbox_id: NotRequired[str | None]`——沙箱实例 ID，`NotRequired` 表示构造该 dict 时可缺省。
+
+**补充**：docstring 明说对齐原版结构、**M4 沙箱功能才用，M1 只占位不启用**——当前没有任何代码消费它，提前放着是为了结构对齐原版。
 
 ## ❓ Q&A / 知识点
 
-### 为什么继承 `AgentState` 而不是自己写 TypedDict？
+### 1. 为什么继承 `AgentState` 而不是自己写 TypedDict？
 
 **一句话**：`AgentState` 自带 `messages: Annotated[list[AnyMessage], add_messages]`——`add_messages` 是"追加" reducer：节点写 messages 时是往列表里加，不是覆盖，多轮对话上下文才能累积。自己写 TypedDict 得自己声明这个 reducer，容易写错；继承官方基类直接白嫖这套语义（原版做法）。
 
-### `thread_id` 为什么要做成状态字段？
+### 2. `thread_id` 为什么要做成状态字段？
 
 **一句话**：checkpointer 是按 `thread_id` 分桶存图状态的（恢复会话的钥匙）。把 `thread_id: str` 放进 ThreadState，状态类型就显式声明了"这是哪条会话"——未来接自定义 `state_schema` 时，thread_id 随 state 一起被快照、恢复。注意当前 M1-M2 实际用 create_agent 内置状态，thread_id 走运行时 config（`config={"configurable": {"thread_id": ...}}`）传，不是 state 字段。
 
@@ -149,3 +159,4 @@ class SandboxState(TypedDict):
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：thread_state.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

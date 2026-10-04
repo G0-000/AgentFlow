@@ -119,7 +119,9 @@ import re
 from typing import Protocol
 ```
 
-**整块解析**：零第三方依赖。`re` 是规则提取的核心（预编译正则）；`typing.Protocol` 用于定义 `MemoryRepoLike` 结构类型（本文件不 import 具体的 `MemoryRepository`，只约束"有 `create` 方法"，从而把落库实现与提取逻辑解耦）。`from __future__ import annotations` 让注解延迟求值，便于在类/函数签名里前向引用。
+**结构简析**：零第三方依赖。`re` 是规则提取的核心（预编译正则）；`typing.Protocol` 用于定义 `MemoryRepoLike` 结构类型。
+
+**补充**：本文件不 import 具体的 `MemoryRepository`，只约束"有 `create` 方法"，从而把落库实现与提取逻辑解耦；`from __future__ import annotations` 让注解延迟求值，便于在签名里前向引用。
 
 ### 块 2：`_FACT_PATTERNS` —— 规则表（正则 → 标准句模板）
 
@@ -140,7 +142,9 @@ _FACT_PATTERNS: list[tuple[re.Pattern[str], str]] = [
 ]
 ```
 
-**整块解析**：这是模块的"灵魂表"——每一项是 `(已编译正则, 模板)`：正则捕获用户信息片段，`{0}` 处套成"用户X"标准句。几个真实细节：① 前两条 `我叫/我是` 捕获长度 1~20 字符（姓名/身份短），后几条捕获到句末标点为止（1~30 字符，描述性内容长）；② `(?:我喜欢|喜欢)` 用非捕获组，主语"我"可省略（注释明说"喜欢爬虫"也算事实）；③ 全表预编译（`re.compile`），`extract_facts` 直接复用，不重复编译。捕获字符集 `[\u4e00-\u9fff\w·]` 即"中文汉字 + 单词字符 + 间隔号"（`\u4e00`~`\u9fff` 是中文 Unicode 区间）。
+**结构简析**：这是模块的"灵魂表"——每一项是 `(已编译正则, 模板)`：正则捕获用户信息片段，`{0}` 处套成"用户X"标准句。几个真实细节：① 前两条 `我叫/我是` 捕获长度 1~20 字符（姓名/身份短），后几条捕获到句末标点为止（1~30 字符，描述性内容长）；② `(?:我喜欢|喜欢)` 用非捕获组，主语"我"可省略（注释明说"喜欢爬虫"也算事实）；③ 全表预编译（`re.compile`），`extract_facts` 直接复用，不重复编译。
+
+**补充**：捕获字符集 `[\u4e00-\u9fff\w·]` 即"中文汉字 + 单词字符 + 间隔号"（`\u4e00`~`\u9fff` 是中文 Unicode 区间）。
 
 ### 块 3：`MemoryRepoLike` Protocol + `_QUESTION_WORDS` —— 落库契约与疑问词过滤
 
@@ -155,7 +159,17 @@ class MemoryRepoLike(Protocol):
 _QUESTION_WORDS = ("什么", "怎么", "哪", "为什么", "吗", "呢", "如何")
 ```
 
-**整块解析**：两个"防错"设计。① `MemoryRepoLike` 是结构化 Protocol——只要求实现 `create(thread_id, content, source_role="user") -> None`，真实的 `MemoryRepository` 自然满足（鸭子类型），测试时塞个 mock 对象即可，consolidate 完全不碰 SQL。② `_QUESTION_WORDS` 是疑问词元组：用户说"我叫什么"时其实是在提问，不是在报事实，后续 `extract_facts` 会用它把这类误命中过滤掉。
+**结构简析**：两个"防错"设计。① `MemoryRepoLike` 是结构化 Protocol——只要求实现 `create(thread_id, content, source_role="user") -> None`，真实的 `MemoryRepository` 自然满足（鸭子类型），测试时塞个 mock 对象即可，consolidate 完全不碰 SQL。② `_QUESTION_WORDS` 是疑问词元组：用户说"我叫什么"时其实是在提问，不是在报事实，后续 `extract_facts` 会用它把这类误命中过滤掉。
+
+**`MemoryRepoLike.create()` 参数逐条解释**（Protocol 约定的落库契约）：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str` | 必填 | 会话 ID，落库时作为记忆来源标签 |
+| `content` | `str` | 必填 | 单条事实标准句（如 `"用户叫小王"`），由 `extract_facts` 产出 |
+| `source_role` | `str` | `"user"` | 来源角色；consolidate 落库时恒传 `"user"`，表明事实来自用户消息 |
+
+**补充**：`_QUESTION_WORDS = ("什么","怎么","哪","为什么","吗","呢","如何")`——命中任一即视为提问，在 `extract_facts` 里 `continue` 跳过。
 
 ### 块 4：`_norm` + `extract_facts` —— 规则提取主逻辑
 
@@ -189,7 +203,16 @@ def extract_facts(text: str) -> list[str]:
     return facts
 ```
 
-**整块解析**：提取主循环——空串直接返回 `[]`；遍历 `_FACT_PATTERNS`，每条正则 `finditer` 扫全文。每个命中先 `_norm` 压多余空白、再做两道闸：空值跳过、命中疑问词跳过（"我叫什么"被这里滤掉）。通过后套模板生成标准句，并用 `seen` 集合在**本次提取内去重**（同一句重复命中只留一条）。docstring 给的样例 `"我叫小王，喜欢爬虫" → ["用户叫小王", "用户喜欢爬虫"]` 正是 `我叫` + `喜欢` 两条规则各命中一次。
+**结构简析**：提取主循环——空串直接返回 `[]`；遍历 `_FACT_PATTERNS`，每条正则 `finditer` 扫全文。每个命中先 `_norm` 压多余空白、再做两道闸：空值跳过、命中疑问词跳过（"我叫什么"被这里滤掉）。通过后套模板生成标准句，并用 `seen` 集合在**本次提取内去重**。
+
+**`_norm()` / `extract_facts()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `fact`（`_norm`） | `str` | 必填 | 正则捕获到的原始片段；`re.sub(r"\s+", " ", fact).strip()` 压成单空格并去首尾空白 |
+| `text`（`extract_facts`） | `str` | 必填 | 待提取的一句话；空串直接返回 `[]`；逐规则 `finditer`，命中经 `_norm`→空值闸→疑问词闸→套模板，`seen` 去重后输出 `list[str]` |
+
+**落库要点**：docstring 样例 `"我叫小王，喜欢爬虫" → ["用户叫小王", "用户喜欢爬虫"]` 正是 `我叫` + `喜欢` 两条规则各命中一次；去重只在本次 `extract_facts` 内（`seen` 集合），不跨会话。
 
 ### 块 5：`consolidate_message` —— 单条消息沉淀入口
 
@@ -207,17 +230,28 @@ def consolidate_message(thread_id: str, role: str, content: str, repo: MemoryRep
     return len(facts)
 ```
 
-**整块解析**：沉淀的对外入口（被 `facade.remember` 调用）。第一道闸 `role != "user" or not content`：assistant 回复是模型话术、不是用户事实，直接返回 0；空内容也不处理。过闸后调 `extract_facts` 提事实，逐条 `repo.create(thread_id, f, source_role="user")` 落库，最后返回 `len(facts)`——返回值就是 CLI/门面可展示的"本次记住了几条"。注意去重只在单次 `extract_facts` 内做，跨会话全库去重不在本层（源码注释归到 M5）。
+**结构简析**：沉淀的对外入口（被 `facade.remember` 调用）。第一道闸 `role != "user" or not content`：assistant 回复是模型话术、不是用户事实，直接返回 0；空内容也不处理。过闸后调 `extract_facts` 提事实，逐条落库。
+
+**`consolidate_message()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str` | 必填 | 会话 ID，透传给 `repo.create(thread_id, f, source_role="user")` 作为记忆来源标签 |
+| `role` | `str` | 必填 | 消息角色；`!= "user"` 直接 `return 0`（assistant 话术不沉淀） |
+| `content` | `str` | 必填 | 本轮消息原文；空串（`not content`）直接 `return 0`；否则过 `extract_facts(content)` 提事实 |
+| `repo` | `MemoryRepoLike` | 必填 | 落库契约对象，只需有 `create` 方法；逐条 `repo.create(thread_id, f, source_role="user")` |
+
+**落库要点**：返回 `len(facts)`——本次沉淀条数（0 = 没提取到事实），即 CLI/门面可展示的"本次记住了几条"。注意去重只在单次 `extract_facts` 内做，跨会话全库去重不在本层（源码注释归到 M5）。
 
 ## ❓ Q&A / 知识点
 
-### 为什么只沉淀 user 消息，不沉淀 assistant 回复？
+### 1. 为什么只沉淀 user 消息，不沉淀 assistant 回复？
 
 **一句话**：记忆存的是"用户的事实"，assistant 说的话是模型话术、不是用户自我描述，沉淀进去会污染"关于用户的事实"。
 
 `consolidate_message` 第一行 `if role != "user" or not content: return 0` 直接把非 user 消息挡在外面。这也是 `repo.create(..., source_role="user")` 恒为 user 的原因——落库时事实已经确定来自用户消息。
 
-### 为什么用规则正则而不是调 LLM 抽事实？
+### 2. 为什么用规则正则而不是调 LLM 抽事实？
 
 **一句话**：M3 要"100% 稳定、不依赖模型/限流"的最小闭环，规则提取可复现、零成本；LLM 抽取作为后续替换，只需改 `extract_facts` 内部。
 
@@ -228,13 +262,13 @@ def consolidate_message(thread_id: str, role: str, content: str, repo: MemoryRep
 
 替换边界清晰：`consolidate_message` 只认 `extract_facts -> list[str]` 这个契约，内部换成模型抽取也不动落库链路。
 
-### `MemoryRepoLike` Protocol 解决了什么？
+### 3. `MemoryRepoLike` Protocol 解决了什么？
 
 **一句话**：让 consolidate 只依赖"有 `create` 方法"这一结构契约，不 import 具体 `MemoryRepository`，测试可注入 mock、落库实现可替换。
 
 真实的 `persistence/memory_repositories.py::MemoryRepository` 实现了 `create/recall/count`，天然满足该 Protocol；单测里直接构造一个带 `create` 的假 repo 即可，无需起 SQLite。
 
-### `repo: MemoryRepoLike` 怎么读？（Protocol 结构化类型详解，2026-09-30 用户提问）
+### 4. `repo: MemoryRepoLike` 怎么读？（Protocol 结构化类型详解，2026-09-30 用户提问）
 
 **一句话**：`MemoryRepoLike` 是 typing.Protocol 定义的结构化类型——"只要长得像 MemoryRepository（有 `create` 方法），就能传进来"，不要求是它的实例或子类。
 
@@ -261,7 +295,7 @@ class FakeRepo:
 
 **命名惯例**：`MemoryRepoLike` / `XxxProtocol` / `SupportsXxx` 都是"行为契约类型"的常见命名——看到 `Like` 就想到"长得像、行为符合即可"。
 
-### extract_facts（事实抽取）是什么？通用概念 vs 本项目实现（2026-09-30 用户提问）
+### 5. extract_facts（事实抽取）是什么？通用概念 vs 本项目实现（2026-09-30 用户提问）
 
 **通用概念（你贴的笔记，LLM 版）**：把一段杂乱长文本（合同/聊天记录/业务文档）自动抓出**原子化、独立、可核验**的一条条客观事实，输出结构化数据（JSON）。
 
@@ -296,3 +330,4 @@ class FakeRepo:
 ---
 _2026-09-30 新建：M3 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
 _2026-09-30 追加：Q&A 归档区（extract_facts 通用概念 vs 本项目规则版对照、MemoryRepoLike Protocol 详解，用户提问自动归纳）；同日 mermaid 块修复。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

@@ -108,7 +108,9 @@ from datetime import UTC, datetime
 from agentflow.persistence.repositories import BaseRepository
 ```
 
-**整块解析**：只引三样——`sqlite3`（类型标注 `sqlite3.Row`）、`UTC`/`datetime`（本文件内联生成时间戳）、`BaseRepository`（继承它拿统一执行器 `_execute`/`_fetch_one`/`_fetch_all` 与连接管理）。注意：这里**直接用 `datetime.now(UTC).isoformat()`** 而不是 timestamps.now_utc_iso——时间格式与 timestamps 模块一致（UTC ISO），但调用点写在本文件里。
+**结构简析**：只引三样——`sqlite3`（类型标注 `sqlite3.Row`）、`UTC`/`datetime`（本文件内联生成时间戳）、`BaseRepository`（继承它拿统一执行器 `_execute`/`_fetch_one`/`_fetch_all` 与连接管理）。
+
+**补充**：这里**直接用 `datetime.now(UTC).isoformat()`** 而不是 timestamps.now_utc_iso——时间格式与 timestamps 模块一致（UTC ISO），但调用点写在本文件里。
 
 ### 块 2：类 docstring + `table_name` —— 职责边界
 
@@ -127,7 +129,9 @@ class SessionRepository(BaseRepository):
         return "sessions"
 ```
 
-**整块解析**：继承 `BaseRepository`，并实现抽象属性 `table_name` 返回 `"sessions"`（基类 ABC 强制要求）。docstring 划清边界：本 repo 存**业务明文**（会话列表/消息展示用），图状态二进制归 checkpointer，两者靠 thread_id 关联但不混淆。
+**结构简析**：继承 `BaseRepository`，并实现抽象属性 `table_name` 返回 `"sessions"`（基类 ABC 强制要求）。docstring 划清边界：本 repo 存**业务明文**（会话列表/消息展示用），图状态二进制归 checkpointer，两者靠 thread_id 关联但不混淆。
+
+**`table_name` property 参数逐条解释**：无参数，直接返回 `"sessions"`。
 
 ### 块 3：会话 CRUD —— create / get / delete
 
@@ -152,7 +156,26 @@ class SessionRepository(BaseRepository):
         self._execute("DELETE FROM sessions WHERE id = ?", (thread_id,))
 ```
 
-**整块解析**：三个抽象方法的具体实现——`create` 用 `INSERT OR IGNORE`，重复建会话不覆盖已存在记录（幂等），`created_at`/`updated_at` 都填同一个 now；`get` 走 `_fetch_one` 读（不 commit）；`delete` **手动两步**：先删该会话的消息、再删会话本身——因为 schema 里外键没写 `ON DELETE CASCADE`，不先删消息会留下孤儿消息行。所有写都经 `_execute`（基类自动 commit）。
+**结构简析**：三个抽象方法的具体实现——`create` 用 `INSERT OR IGNORE`（重复建会话不覆盖已存在记录，幂等），`created_at`/`updated_at` 都填同一个 now；`get` 走 `_fetch_one` 读（不 commit）；`delete` **手动两步**：先删该会话的消息、再删会话本身（schema 里外键没写 `ON DELETE CASCADE`，不先删消息会留孤儿消息行）。所有写都经 `_execute`（基类自动 commit）。
+
+**`create(thread_id, title)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str` | 必填 | 会话 id（即 LangGraph thread_id），写入 `sessions.id` |
+| `title` | `str` | `""` | 会话标题；建会话时给空串，后续由 M2 `update_title` 回填 |
+
+**`get(thread_id)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str` | 必填 | 按 `sessions.id = ?` 取一行，返回 `sqlite3.Row \| None` |
+
+**`delete(thread_id)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str` | 必填 | 先删 `session_messages.session_id = ?`、再删 `sessions.id = ?`（手动两步，无级联） |
 
 ### 块 4：`touch` / `update_title` —— 更新类写操作
 
@@ -167,7 +190,20 @@ class SessionRepository(BaseRepository):
         self._execute("UPDATE sessions SET title = ? WHERE id = ?", (title, thread_id))
 ```
 
-**整块解析**：两个 UPDATE——`touch` 每次对话结束刷新 `updated_at`（用于会话列表排序"最近活跃"）；`update_title` 是 M2 标题落库链路的终点，由标题中间件把生成的标题写进 `sessions.title`。两者都经 `_execute`，参数化 `?` 占位防注入。
+**结构简析**：两个 UPDATE——`touch` 每次对话结束刷新 `updated_at`（用于会话列表排序「最近活跃」）；`update_title` 是 M2 标题落库链路的终点，由标题中间件把生成的标题写进 `sessions.title`。两者都经 `_execute`，参数化 `?` 占位防注入。
+
+**`touch(thread_id)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str` | 必填 | `UPDATE sessions SET updated_at = 当前UTC WHERE id = ?` |
+
+**`update_title(thread_id, title)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str` | 必填 | 目标会话 id |
+| `title` | `str` | 必填 | 要写入的新标题（M2 标题中间件生成） |
 
 ### 块 5：消息读写 —— `add_message` / `list_messages`
 
@@ -190,7 +226,21 @@ class SessionRepository(BaseRepository):
         )
 ```
 
-**整块解析**：`add_message` 追加一条明文消息（role 取 user/assistant/tool），时间戳内联生成；`list_messages` 按 `created_at` 升序返回该会话全部消息（走 `_fetch_all`，读不 commit）。注意这里参数名叫 `session_id`，实际传入的就是 thread_id——sessions.id 与 session_messages.session_id 同值关联。
+**结构简析**：`add_message` 追加一条明文消息（role 取 user/assistant/tool），时间戳内联生成；`list_messages` 按 `created_at` 升序返回该会话全部消息（走 `_fetch_all`，读不 commit）。
+
+**`add_message(session_id, role, content)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `session_id` | `str` | 必填 | 所属会话 id（实际传入的就是 thread_id——`sessions.id` 与 `session_messages.session_id` 同值关联） |
+| `role` | `str` | 必填 | 消息角色：user / assistant / tool |
+| `content` | `str` | 必填 | 消息明文内容 |
+
+**`list_messages(session_id)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `session_id` | `str` | 必填 | `SELECT * FROM session_messages WHERE session_id = ? ORDER BY created_at`，按时间序返回 |
 
 ## ❓ Q&A
 
@@ -210,3 +260,4 @@ A: 本地单机调试够用；M7 gateway 上线前需考虑脱敏
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：session_repositories.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

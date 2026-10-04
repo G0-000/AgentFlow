@@ -131,7 +131,11 @@ logger = logging.getLogger(__name__)
 MAX_CONCURRENT_SUBAGENTS = 3
 ```
 
-**整块解析**：并发原语集中在 `concurrent.futures`（ThreadPoolExecutor / Future / TimeoutError 改名 FuturesTimeoutError 避免和别的 TimeoutError 混）。langchain 侧只取三件：`create_agent`（建子代理）、`BaseTool`（工具类型）、`BaseChatModel`（模型类型）、`AIMessage`（抽最终文本）。**唯一业务 import 是 `agentflow.subagents.config`**——本模块不 import sandbox、不 import registry、不 import tools，依赖极窄。`MAX_CONCURRENT_SUBAGENTS = 3` 是验收硬约束常量。
+**结构简析**：并发原语集中在 `concurrent.futures`（`ThreadPoolExecutor` / `Future` / `TimeoutError` 改名 `FuturesTimeoutError` 避免和别的 TimeoutError 混）。langchain 侧取四件：`create_agent`（建子代理）、`BaseTool`（工具类型）、`BaseChatModel`（模型类型）、`AIMessage`（抽最终文本）。模块加载时建 logger 并定义常量 `MAX_CONCURRENT_SUBAGENTS = 3`。
+
+本块无可逐条解释的函数（仅 import + 模块级赋值）。
+
+**补充**：唯一业务 import 是 `agentflow.subagents.config`——本模块不 import sandbox、不 import registry、不 import tools，依赖极窄。`MAX_CONCURRENT_SUBAGENTS = 3` 是 M4 验收硬约束常量（并行 ≤3）。
 
 ### 块 2：SubagentStatus + SubagentResult + _make_task_id
 
@@ -171,7 +175,22 @@ def _make_task_id() -> str:
     return uuid.uuid4().hex[:12]
 ```
 
-**整块解析**：状态机五态——PENDING（后台任务刚登记）→ RUNNING（在跑）→ COMPLETED / FAILED / TIMED_OUT 三终态。`SubagentResult` 是纯数据载体，`result`（成功文本）与 `error`（失败信息）互斥填充。`_make_task_id` 取 `uuid4().hex[:12]` 短格式，docstring 注明"AgentFlow 无 make_formatted_id"。
+**结构简析**：三件东西——`SubagentStatus` 五态枚举（状态机）、`SubagentResult` 结果数据载体、`_make_task_id` 任务 ID 生成器。状态机流转：PENDING（后台任务刚登记）→ RUNNING（在跑）→ COMPLETED / FAILED / TIMED_OUT 三终态。`SubagentResult` 是纯数据载体，`result`（成功文本）与 `error`（失败信息）互斥填充。
+
+**`SubagentResult()` 参数逐条解释**（dataclass 自动生成的 `__init__` 入参）：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `task_id` | `str` | 必填 | 本次执行唯一标识，由 `_make_task_id()`（`uuid4().hex[:12]`）生成 |
+| `status` | `SubagentStatus` | 必填 | 当前状态：PENDING/RUNNING/COMPLETED/FAILED/TIMED_OUT |
+| `result` | `str \| None` | `None` | 完成时的最终文本（成功路径填）；失败时为 None |
+| `error` | `str \| None` | `None` | 失败时的错误信息（失败路径填，截前 200 字符）；成功时为 None |
+| `started_at` | `datetime \| None` | `None` | 开始时刻（UTC），进入 RUNNING 时打 |
+| `completed_at` | `datetime \| None` | `None` | 完成时刻（UTC），到达终态时打 |
+
+**`_make_task_id()` 参数逐条解释**：无参数。返回 `uuid.uuid4().hex[:12]`——取 uuid4 前 12 位短格式，docstring 注明"AgentFlow 无 make_formatted_id"。
+
+**落库要点**：五态枚举字符串值为 `"pending"/"running"/"completed"/"failed"/"timed_out"`，非终态只有 PENDING、RUNNING，cleanup 只删三终态。
 
 ### 块 3：_filter_tools —— 白名单 ∩ 黑名单
 
@@ -196,7 +215,17 @@ def _filter_tools(
     return filtered
 ```
 
-**整块解析**：两道串联闸门——先白名单（`allowed` 非 None 才裁，None 表示继承父级全部），再黑名单（`disallowed` 非 None 才剔，默认三件套恒生效）。判定键是 `t.name`（工具注册名）。bash 子代理靠 `allowed=["terminal_run"]` 把工具集裁到只剩终端；general-purpose 靠 `tools=None` 全继承但仍被黑名单剔掉派发/澄清工具。
+**结构简析**：两道串联闸门——先白名单（`allowed` 非 None 才裁，None 表示继承父级全部），再黑名单（`disallowed` 非 None 才剔，默认三件套恒生效）。判定键是工具的 `t.name`（注册名）。
+
+**`_filter_tools()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `all_tools` | `list[BaseTool]` | 必填 | 父级全部工具列表（executor 构造时传入），过滤前的全集 |
+| `allowed` | `list[str] \| None` | 必填（内部传参） | 白名单；非 None 时只留 `t.name in allowed_set` 的工具（bash 子代理传 `["terminal_run"]` 裁到只剩终端）；None 表示不裁剪、继承全部 |
+| `disallowed` | `list[str] \| None` | 必填（内部传参） | 黑名单；非 None 时剔除 `t.name in disallowed_set` 的工具，防递归派发；默认三件套恒生效 |
+
+**落库要点**：bash 子代理靠 `allowed=["terminal_run"]` 把工具集裁到只剩终端；general-purpose 靠 `tools=None` 全继承，但仍被黑名单剔掉 `dispatch_subagents` / `ask_clarification`。两道闸门顺序固定：先白名单再黑名单。
 
 ### 块 4：SubagentExecutor.__init__ + _build_agent
 
@@ -243,7 +272,19 @@ class SubagentExecutor:
         )
 ```
 
-**整块解析**：构造时即按 config 把父级工具过滤成 `self.tools`（日志记录工具个数）。`_build_agent` 用 langchain `create_agent`（与 lead_agent 同 API），注入过滤后的工具集与 config.system_prompt；**不传 checkpointer**——子代理一次性执行不持久化。model 未注入直接 `raise RuntimeError`（对应 dispatch_tool 未配置分支的兜底）。
+**结构简析**：`SubagentExecutor` 类声明。构造时即按 config 把父级工具过滤成 `self.tools`（日志记录工具个数）；`_build_agent` 用 langchain `create_agent`（与 lead_agent 同 API）注入过滤后的工具集与 config.system_prompt，不传 checkpointer。
+
+**`__init__()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `config` | `SubagentConfig` | 必填 | 子代理配置，读取其 `name` / `system_prompt` / `tools`（白名单）/ `disallowed_tools`（黑名单） |
+| `tools` | `list[BaseTool]` | 必填 | 父级全部工具；构造时经 `_filter_tools` 按 config 过滤后存为 `self.tools` 给子代理 |
+| `model` | `BaseChatModel \| None` | `None` | 父模型实例；`config.model="inherit"` 时直接用；为 None 时 `_build_agent` 抛 RuntimeError |
+
+**`_build_agent()` 参数逐条解释**：无参数。内部方法——model 未注入直接 `raise RuntimeError("子代理需要 model（父模型未注入）")`（对应 dispatch_tool 未配置分支的兜底），否则 `create_agent(model, tools, system_prompt=config.system_prompt)` 建子代理。
+
+**落库要点**：不传 checkpointer——子代理一次性执行、不持久化（M5 长任务再学）。
 
 ### 块 5：_run_sync + run（同步执行 + 超时 best-effort）
 
@@ -301,7 +342,24 @@ class SubagentExecutor:
             pool.shutdown(wait=False)
 ```
 
-**整块解析**：`_run_sync` 是真干活的地方——建 agent、`agent.invoke`、`_extract_final_ai_text` 抽文本；任何 Exception（含模型调用异常）统一收进 FAILED，error 截前 200 字符。`run` 用 `ThreadPoolExecutor(max_workers=1)` 把 `_run_sync` 扔进单线程，主调线程 `future.result(timeout=timeout)` 等结果；超时抛 `FuturesTimeoutError` → 返回 TIMED_OUT。**关键点（检查轮修正）**：超时路径必须 `pool.shutdown(wait=False)`——若用 `with ThreadPoolExecutor` 包住，`__exit__` 的 `shutdown(wait=True)` 会等悬挂线程跑完，超时就不"及时返回"了。`finally` 里再 shutdown 一次无害（幂等）。底层线程无法强杀，best-effort，由进程退出回收。
+**结构简析**：两个方法——`_run_sync` 是真干活的地方（建 agent、`agent.invoke`、抽文本），任何 Exception 统一收进 FAILED；`run` 用单线程池把 `_run_sync` 包起来做超时控制，超时抛 `FuturesTimeoutError` → 返回 TIMED_OUT。
+
+**`_run_sync()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `task` | `str` | 必填 | 任务描述文本，作为 `{"role":"user","content":task}` 投给子代理 agent |
+
+内部行为：建 RUNNING 态 result（打 started_at）→ `_build_agent()` → `agent.invoke` → `_extract_final_ai_text` 抽文本（空则填 `"(子代理无文本输出)"`）→ COMPLETED；任何 Exception 收 FAILED，error 记 `{type(exc).__name__}: {str(exc)[:200]}`；末尾打 completed_at。
+
+**`run()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `task` | `str` | 必填 | 同 `_run_sync`，任务描述文本 |
+| `timeout_seconds` | `int \| None` | `None` | 超时秒数；None 时回退用 `self.config.timeout_seconds`（默认 120） |
+
+**落库要点**：超时路径必须 `pool.shutdown(wait=False)`——若用 `with ThreadPoolExecutor` 包住，`__exit__` 的 `shutdown(wait=True)` 会等悬挂线程跑完，超时就不"及时返回"了；`finally` 里再 shutdown 一次幂等无害。底层线程无法强杀，best-effort，由进程退出回收。
 
 ### 块 6：run_with_retry + execute_async
 
@@ -335,7 +393,24 @@ class SubagentExecutor:
         return tid
 ```
 
-**整块解析**：`run_with_retry` 是 while 循环——只在 `status == FAILED` 且 `attempt < max_retries`（默认 2）时重试；COMPLETED/TIMED_OUT 直接返回。`execute_async` 先在模块级 `_background_tasks` 登记一条 PENDING 占位（加锁），再把 `_run_background` 提交到 `_scheduler_pool`，立刻返回 task_id——调用方不等执行完。
+**结构简析**：两个对外方法——`run_with_retry` 是 while 循环，只对 FAILED 重试；`execute_async` 先在模块级 `_background_tasks` 登记 PENDING 占位（加锁），再把 `_run_background` 提交到 `_scheduler_pool`，立刻返回 task_id，调用方不等执行完。
+
+**`run_with_retry()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `task` | `str` | 必填 | 任务描述文本，透传给 `self.run` |
+| `max_retries` | `int` | `2` | 最大重试次数；只有 `status == FAILED` 且 `attempt < max_retries` 时才继续 while；COMPLETED/TIMED_OUT 直接返回 |
+| `timeout_seconds` | `int \| None` | `None` | 透传给 `self.run` 的超时秒数；None 回退 config 默认 |
+
+**`execute_async()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `task` | `str` | 必填 | 任务描述文本，提交给后台执行体 `_run_background` |
+| `task_id` | `str \| None` | `None` | 指定任务 ID；None 时用 `_make_task_id()` 新生成 |
+
+**落库要点**：TIMED_OUT 不重试——超时重试只会再超时。execute_async 登记的 PENDING 占位加 `_background_tasks_lock` 保护，结果后续由 `get_background_task_result(task_id)` 查询。
 
 ### 块 7：dispatch_parallel —— 并行 ≤3 核心
 
@@ -364,7 +439,16 @@ class SubagentExecutor:
             return [f.result() for f in futures]  # 按输入顺序取
 ```
 
-**整块解析**：这是 M4 验收点 1/2/3 的核心。`workers = max(1, min(int(max_parallel), MAX_CONCURRENT_SUBAGENTS))`——先把外部传入的 max_parallel 钳到不超过常量 3，再保底 ≥1。然后建一个 `max_workers=workers` 的线程池，把每个任务 `submit(self.run, t)`。**Python ThreadPoolExecutor 的队列天然排队**：池里只有 workers 个槽位，派 5 个任务时只有前 3 个真并发，第 4/5 个在队列里等空位。最后 `[f.result() for f in futures]` 按 futures 列表顺序（= 输入顺序）取结果，不是完成顺序。
+**结构简析**：M4 验收点 1/2/3 的核心。先 `workers = max(1, min(int(max_parallel), MAX_CONCURRENT_SUBAGENTS))` 把外部传入的 max_parallel 钳到不超过常量 3、再保底 ≥1；建 `max_workers=workers` 线程池，把每个任务 `submit(self.run, t)`。ThreadPoolExecutor 的内置队列天然排队——池里只有 workers 个槽位，派 5 个任务时前 3 个真并发、第 4/5 个在队列等空位。
+
+**`dispatch_parallel()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tasks` | `list[str]` | 必填 | 任务描述列表，每个都会被独立 `submit(self.run, t)` 派发 |
+| `max_parallel` | `int` | `MAX_CONCURRENT_SUBAGENTS`（即 `3`） | 并行上限；内部再 `min(max_parallel, 3)` 钳一次，即使调用方传 10 实际 workers 也 ≤3（双保险） |
+
+**落库要点**：最后 `[f.result() for f in futures]` 按 futures 列表顺序（= 输入顺序）取结果，不是完成顺序。
 
 ### 块 8：模块级后台任务存储 + _run_background + 查询/清理 + 文本抽取
 
@@ -432,11 +516,45 @@ def _extract_final_ai_text(response: object) -> str:
     return ""
 ```
 
-**整块解析**：模块级三件套——`_background_tasks` dict（进程内存储）、`_background_tasks_lock`（threading.Lock 保护读写）、`_scheduler_pool`（max_workers=5 的调度池，后台任务数量不限但执行仍受 run 超时控制）。`_run_background` 两次加锁：先把 PENDING 改 RUNNING，跑完再回写终态；两次都先 `get` 判 None（任务可能被 cleanup 删了）。`cleanup_background_task` 只删三终态、跳过中间态（防竞态）。`_extract_final_ai_text` 从 invoke 返回的 messages 里倒序找第一条非空 AIMessage 文本。
+**结构简析**：模块级三件套——`_background_tasks` dict（进程内存储）、`_background_tasks_lock`（threading.Lock 保护读写）、`_scheduler_pool`（max_workers=5 的调度池，后台任务数量不限但执行仍受 run 超时控制）。围绕它有五个函数：执行体 `_run_background`、查询 `get_background_task_result`、枚举 `list_background_tasks`、清理 `cleanup_background_task`、文本抽取 `_extract_final_ai_text`。
+
+**`_run_background()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `executor` | `SubagentExecutor` | 必填 | 执行器实例，内部调 `executor.run(task)` 真正跑任务 |
+| `task_id` | `str` | 必填 | 后台任务 ID，用于在 `_background_tasks` 里定位并回写那条记录 |
+| `task` | `str` | 必填 | 任务描述文本，透传给 `executor.run` |
+
+行为：两次加锁——先把 PENDING 改 RUNNING（打 started_at），跑完再回写终态；两次都先 `get` 判 None（任务可能被 cleanup 删了，删了就直接 return）。
+
+**`get_background_task_result()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `task_id` | `str` | 必填 | 要查询的任务 ID；未登记返回 `None`（未知 task_id） |
+
+**`list_background_tasks()` 参数逐条解释**：无参数。加锁返回 `list(_background_tasks.values())` 全部后台任务快照。
+
+**`cleanup_background_task()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `task_id` | `str` | 必填 | 要移除的任务 ID；只有状态为 COMPLETED/FAILED/TIMED_OUT 三终态才 `del`，非终态跳过（防竞态） |
+
+**`_extract_final_ai_text()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `response` | `object` | 必填 | `agent.invoke` 的返回；dict 才取 `messages`，否则当空 |
+
+行为：倒序遍历 messages，找第一条 `isinstance(m, AIMessage)` 且 content 为非空字符串的，返回其 strip 文本；找不到返回 `""`。
+
+**落库要点**：后台任务全程进程内存储（无持久化），lock 保护所有读写；cleanup 只删终态防内存泄漏、跳过中间态防竞态。
 
 ## ❓ Q&A / 知识点
 
-### 子代理并行 ≤3 是怎么实现的（ThreadPoolExecutor max_workers 排队）？（2026-10-01 用户提问）
+### 1. 子代理并行 ≤3 是怎么实现的（ThreadPoolExecutor max_workers 排队）？（2026-10-01 用户提问）
 
 **一句话**：靠 `ThreadPoolExecutor(max_workers=workers)` 的**内置工作队列天然排队**——线程池只有 workers 个真并发槽位，多提交的任务在队列里等空位，不需要自己写信号量/计数器。
 
@@ -459,15 +577,15 @@ def _extract_final_ai_text(response: object) -> str:
 
 **双保险**：外部 dispatch_tool 工具参数 `max_parallel=3`，executor 内部又 `min(max_parallel, MAX_CONCURRENT_SUBAGENTS)` 钳一次——即使调用方传 10，实际 workers 也 ≤3。
 
-### 超时为什么是 best-effort，不能强杀？
+### 2. 超时为什么是 best-effort，不能强杀？
 
 **一句话**：Python 线程无法安全强制终止，`future.result(timeout)` 超时只是让主调线程"放弃等待"并返回 TIMED_OUT，底层那个还在跑的线程不会被停掉。源码 docstring 明确"底层线程无法强杀，与原版一致"。**检查轮修正**：超时路径 `pool.shutdown(wait=False)` 确保调用方及时拿到 TIMED_OUT——若用 `with` 的默认 wait=True，`__exit__` 仍会等悬挂线程跑完，超时就失效了；悬挂线程由进程退出回收。
 
-### 为什么 TIMED_OUT 不重试，只重试 FAILED？
+### 3. 为什么 TIMED_OUT 不重试，只重试 FAILED？
 
 **一句话**：超时重试只会再超时（任务本身就跑不完），重试是浪费；而 FAILED 是模型调用异常（网络/瞬时错误），重试有机会成功。run_with_retry 的判定是 `if result.status != SubagentStatus.FAILED or attempt >= max_retries: return result`——只有 FAILED 才继续 while。
 
-### 白名单（tools）/黑名单（disallowed_tools）是什么意思？父级 9 个工具怎么算出 7 个？（2026-10-01 用户提问）
+### 4. 白名单（tools）/黑名单（disallowed_tools）是什么意思？父级 9 个工具怎么算出 7 个？（2026-10-01 用户提问）
 
 **一句话**：白名单 = 只允许列表内的工具（`None` = 继承父级全部，白名单不生效）；黑名单 = 始终剔除（优先级最高，即使在白名单里也删）。最终公式：
 
@@ -495,3 +613,4 @@ def _extract_final_ai_text(response: object) -> str:
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

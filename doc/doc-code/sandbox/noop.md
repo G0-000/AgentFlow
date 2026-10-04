@@ -99,10 +99,11 @@ from agentflow.sandbox.sandbox import Sandbox
 from agentflow.sandbox.sandbox_provider import SandboxProvider
 ```
 
-**整块解析**：三个 import 正好对应它的两个身份——继承 `Sandbox`（成为一个沙箱）、
-继承 `SandboxProvider`（成为提供者）、抛 `SandboxError`（拒绝时用）。
-注意这里**只 import 基类异常**——Noop 一律抛最普通的 SandboxError，
-不细分 Permission/File/Command（反正都是"未配置"一种语义）。
+**结构简析**：三个 import 正好对应它的两个身份——继承 `Sandbox`（成为一个沙箱）、继承 `SandboxProvider`（成为提供者）、抛 `SandboxError`（拒绝时用）。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：这里只 import 基类异常 `SandboxError`——Noop 一律抛最普通的 SandboxError，不细分 Permission/File/Command（反正都是"未配置"一种语义）。
 
 ### 块 2：`NoopSandbox.__init__` —— 固定 id + 拒绝文案
 
@@ -115,9 +116,11 @@ class NoopSandbox(Sandbox):
         self._deny_msg = "沙箱未配置（NoopSandbox）：宿主系统操作被拒绝"
 ```
 
-**整块解析**：两行关键事实——① `id="noop"` 是 Provider 查表键（NoopSandboxProvider.get
-按这个 id 匹配）；② `_deny_msg` 是全类统一拒绝文案。文案点名"NoopSandbox"并说明
-"宿主系统操作被拒绝"，用户看到就知道不是操作错了、是沙箱根本没配。
+**结构简析**：`NoopSandbox(Sandbox)` 空沙箱。构造两件事——固定 `id="noop"`、存统一拒绝文案 `_deny_msg`。
+
+**`__init__()` 参数逐条解释**：无参数。`super().__init__(id="noop")`——`id="noop"` 是 Provider 查表键（NoopSandboxProvider.get 按这个 id 匹配）；`self._deny_msg = "沙箱未配置（NoopSandbox）：宿主系统操作被拒绝"` 是全类统一拒绝文案。
+
+**落库要点**：文案点名"NoopSandbox"并说明"宿主系统操作被拒绝"，用户看到就知道不是操作错了、是沙箱根本没配；文案存实例属性，6 个方法共用、将来改措辞只动一行。
 
 ### 块 3：6 个拒绝方法 —— 每个抽象方法都 fail
 
@@ -141,10 +144,20 @@ class NoopSandbox(Sandbox):
         raise SandboxError(self._deny_msg, details=f"path={path}")
 ```
 
-**整块解析**：6 个方法的签名与 `Sandbox` ABC 逐一对齐（参数名、默认值、返回类型都一致），
-方法体却只有一行 raise——这就是"全拒绝"的字面实现。细节：`execute_command` 的 details
-用 `command[:80]` 截断（命令可能很长，避免异常对象膨胀），文件类方法只带 `path`。
-签名照抄接口是硬约束：缺一个方法，NoopSandbox 就无法实例化（ABC 校验）。
+**结构简析**：6 个方法的签名与 `Sandbox` ABC 逐一对齐（参数名、默认值、返回类型都一致），方法体却只有一行 `raise SandboxError`——这就是"全拒绝"的字面实现。签名照抄接口是硬约束：缺一个方法，NoopSandbox 就无法实例化（ABC 校验）。
+
+各方法参数与 details 现场（方法体统一 `raise SandboxError(self._deny_msg, details=...)`）：
+
+| 方法 | 参数 | details 现场 |
+|---|---|---|
+| `execute_command` | `command: str`（必填）、`timeout: int = 30` | `command={command[:80]}`（命令截断 80 字符防异常对象膨胀） |
+| `read_file` | `path: str`（必填） | `path={path}` |
+| `list_dir` | `path: str`（必填）、`max_depth: int = 2` | `path={path}` |
+| `write_file` | `path: str`（必填）、`content: str`（必填）、`append: bool = False` | `path={path}` |
+| `update_file` | `path: str`（必填）、`content: bytes`（必填） | `path={path}` |
+| `delete_file` | `path: str`（必填） | `path={path}` |
+
+**落库要点**：`execute_command` 的 details 用 `command[:80]` 截断（命令可能很长），文件类方法只带 `path`。所有方法都不会真正执行——fail-closed，进来就抛。
 
 ### 块 4：`NoopSandboxProvider` —— 固定返回单例
 
@@ -165,15 +178,33 @@ class NoopSandboxProvider(SandboxProvider):
         pass  # 单例无状态，无需归还
 ```
 
-**整块解析**：Provider 在 `__init__` 里建一个 NoopSandbox 存着，此后
-acquire 永远返回它的 id、get 在 id 匹配时返回它、release 什么都不做。
-`get` 对陌生 id 返回 None——与工具层"sandbox is None → 返回（沙箱不可用）"的兜底
-（terminal_tool.py:84）配套。（注：模块头部结构图注释把 acquire 误写为
-返回 "local"，实际源码返回 `self._sandbox.id` 即 "noop"，以代码为准。）
+**结构简析**：`NoopSandboxProvider(SandboxProvider)`——固定返回单个 NoopSandbox（id="noop"）。`__init__` 里建一个 NoopSandbox 存着，此后 acquire 永远返回它的 id、get 在 id 匹配时返回它、release 什么都不做。
+
+**`__init__()` 参数逐条解释**：无参数。构造即 `self._sandbox = NoopSandbox()`。
+
+**`acquire()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str \| None` | `None` | 线程标识（基类契约参数，本实现单例不用它）；直接返回 `self._sandbox.id`（即 `"noop"`） |
+
+**`get()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `sandbox_id` | `str` | 必填 | 要取的沙箱 id；等于 `self._sandbox.id` 返回该单例，否则 `None` |
+
+**`release()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `sandbox_id` | `str` | 必填 | 要归还的沙箱 id；本实现空操作 `pass`——单例无状态，无需归还 |
+
+**落库要点**：`get` 对陌生 id 返回 None，与工具层"sandbox is None → 返回（沙箱不可用）"的兜底（terminal_tool.py:84）配套。
 
 ## ❓ Q&A / 知识点
 
-### 为什么默认沙箱是 Noop 而不是直接开放宿主目录？
+### 1. 为什么默认沙箱是 Noop 而不是直接开放宿主目录？
 
 **一句话**：fail-closed 原则——安全默认值必须是"拒绝"，而不是"放行"。
 
@@ -185,7 +216,7 @@ acquire 永远返回它的 id、get 在 id 匹配时返回它、release 什么�
 CLI 装配（cli/main.py:176）显式注入 `LocalSandboxProvider(项目/.sandbox)`，
 把"是否放开、放开到哪个目录"变成一个看得见的决策点。
 
-### 拒绝文案为什么存成实例属性 `_deny_msg`，而不是每个方法内联字符串？
+### 2. 拒绝文案为什么存成实例属性 `_deny_msg`，而不是每个方法内联字符串？
 
 **一句话**：统一文案只维护一处——6 个方法共用，将来改措辞只动 `__init__` 一行。
 同时 details 仍按方法各自携带现场（command 截断 80 字符 / path 原文），文案与现场分离。
@@ -200,3 +231,4 @@ CLI 装配（cli/main.py:176）显式注入 `LocalSandboxProvider(项目/.sandbo
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

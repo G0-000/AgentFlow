@@ -140,7 +140,11 @@ from agentflow.sandbox import SandboxError, get_sandbox_provider
 _audit_repo: SandboxAuditRepository | None = None
 ```
 
-**整块解析**：依赖三样——`tool`（LangChain 装饰器注册工具）、`SandboxAuditRepository`（审计仓库类型，仅作句柄类型标注，不在本文件实例化）、`SandboxError / get_sandbox_provider`（沙箱异常与取沙箱的唯一入口）。`_audit_repo` 是模块级全局句柄，初值 `None`：**未注入审计时工具照常跑，只是不写审计**——审计是可观测性配套，不能反过来阻塞工具主流程。
+**结构简析**：依赖三样——`tool`（LangChain 装饰器注册工具）、`SandboxAuditRepository`（审计仓库类型，仅作句柄类型标注，不在本文件实例化）、`SandboxError / get_sandbox_provider`（沙箱异常与取沙箱的唯一入口）。`_audit_repo` 是模块级全局句柄，初值 `None`。
+
+本块无函数签名，不展开参数表。
+
+**落库要点**：未注入审计时 `_audit_repo` 保持 None，工具照常跑只是不写审计——审计是可观测性配套，不能反过来阻塞工具主流程。
 
 ### 块 2：`configure_sandbox_audit_repository` —— 依赖注入入口
 
@@ -151,7 +155,15 @@ def configure_sandbox_audit_repository(repo: SandboxAuditRepository | None) -> N
     _audit_repo = repo
 ```
 
-**整块解析**：经典"模块级注入"——函数接收一个仓库实例，写进全局 `_audit_repo`。CLI 装配时调用（`cli/main.py:178` 以 `configure_terminal_audit` 别名导入后调用）；传 `None` 即关闭审计。工具模块自身不 import db、不 new 仓库，模型/连接全部由 CLI 统一创建，测试时也可注入内存/mock 仓库。
+**结构简析**：经典"模块级注入"——函数接收一个仓库实例，写进全局 `_audit_repo`。
+
+**`configure_sandbox_audit_repository()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `repo` | `SandboxAuditRepository \| None` | 必填 | 沙箱审计仓库实例；`global _audit_repo` 挂到模块级句柄，传 `None` 即关闭审计 |
+
+**落库要点**：CLI 装配时调用（`cli/main.py:178` 以 `configure_terminal_audit` 别名导入后调用）；工具模块自身不 import db、不 new 仓库，连接全部由 CLI 统一创建，测试时也可注入内存/mock 仓库。
 
 ### 块 3：`_audit` —— 放行/拦截统一落审计
 
@@ -171,7 +183,18 @@ def _audit(action: str, target: str, allowed: bool, reason: str = "") -> None:
         pass
 ```
 
-**整块解析**：三层防御——① 仓库未注入（`None`）直接 return，不阻塞工具；② 调 `repo.record(...)` 真正落库，`subagent_name` 在这里**硬编码为 `"terminal_run"`**（与 file_tools 里 `subagent_name=action` 的写法不同，注意区分）；③ `except Exception: pass` 吞掉一切审计异常并加 `noqa`——审计写库失败（如锁/磁盘问题）绝不能反过来炸掉正在执行的命令。`allowed` 是 Python bool，落库时由 repo 归一化为 0/1 整数。
+**结构简析**：三层防御——① 仓库未注入（`None`）直接 return，不阻塞工具；② 调 `repo.record(...)` 真正落库，`subagent_name` 在这里**硬编码为 `"terminal_run"`**（与 file_tools 里 `subagent_name=action` 的写法不同，注意区分）；③ `except Exception: pass` 吞掉一切审计异常并加 `noqa`。
+
+**`_audit()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `action` | `str` | 必填 | 操作名，本文件固定传 `"terminal_run"`；落库到 repo 的 `action=` 字段 |
+| `target` | `str` | 必填 | 操作目标（命令字符串），落库到 `target` 字段 |
+| `allowed` | `bool` | 必填 | 是否放行；放行=True、拦截=False，落库时由 repo 归一化为 0/1 整数 |
+| `reason` | `str` | `""` | 拦截原因；拦截分支传 `str(exc)`，放行时留空串 |
+
+**落库要点**：`subagent_name` 在此硬编码 `"terminal_run"`（整个文件只有 terminal_run 一个工具）；`record(...)` 包在 try/except 里，审计写库失败（锁/磁盘问题）被吞，绝不反过来炸掉正在执行的命令（`# noqa: BLE001,S110`）。
 
 ### 块 4：`_TERMINAL_DESCRIPTION` —— 给模型看的说明书
 
@@ -183,7 +206,11 @@ _TERMINAL_DESCRIPTION = """\
 """
 ```
 
-**整块解析**：与 clarification/todo 工具同款——这段字符串注入 system prompt 给模型读，决定"何时调本工具、参数怎么填"。三行约定：① 用途（沙箱内跑 shell 命令）；② 触发场景（看状态/跑脚本/跑测试/批处理）；③ 约束（沙箱外路径被拦截、30s 超时）。`"""\` 换行写法使首行后直接接内容。改措辞 = 改模型行为。
+**结构简析**：与 clarification/todo 工具同款——这段字符串注入 system prompt 给模型读，决定"何时调本工具、参数怎么填"。三行约定：① 用途（沙箱内跑 shell 命令）；② 触发场景（看状态/跑脚本/跑测试/批处理）；③ 约束（沙箱外路径被拦截、30s 超时）。
+
+本块是模块级常量字符串，无函数签名，不展开参数表。
+
+**补充**：作为 `@tool` 的 `description=` 传入；改措辞 = 改模型行为。
 
 ### 块 5：`@tool` 装饰器 + `terminal_run` 函数体 —— 唯一执行链
 
@@ -204,15 +231,19 @@ def terminal_run(command: str) -> str:
         return f"（沙箱拦截）{exc}"
 ```
 
-**整块解析**：装饰器注册名 `"terminal_run"`、绑定说明书、`parse_docstring=False`、`return_direct=True`。函数体是 M4 安全闸的完整闭环：
-- **取沙箱**：`provider = get_sandbox_provider()` → `sandbox = provider.get(provider.acquire())`。`acquire()` 返回沙箱 id（LocalSandboxProvider 返回自身 `_sandbox.id`），`get(id)` 再按 id 取回 `LocalSandbox` 实例——工具不感知全局状态，只走这一个入口。
-- **空守卫**：`sandbox is None`（如 Noop 未装配）直接返回"（沙箱不可用）"，不执行任何命令。
-- **执行**：`sandbox.execute_command(command)` 把命令真正交给沙箱；越界时沙箱抛 `SandboxError`。
-- **双分支审计**：成功先 `_audit(..., allowed=True)` 再返回输出；捕获 `SandboxError` 后 `_audit(..., allowed=False, reason=str(exc))` 并返回"（沙箱拦截）"友好提示——**catch 异常是硬要求**，不 catch 会把异常炸进模型工具循环。
+**结构简析**：装饰器注册名 `"terminal_run"`、绑定说明书、`parse_docstring=False`、`return_direct=True`。函数体是 M4 安全闸的完整闭环：取沙箱（`provider = get_sandbox_provider()` → `sandbox = provider.get(provider.acquire())`）→ 空守卫（`sandbox is None` → "（沙箱不可用）"）→ 执行（`sandbox.execute_command(command)`）→ 双分支审计。`acquire()` 返回沙箱 id，`get(id)` 再按 id 取回实例——工具不感知全局状态，只走这一个入口。
+
+**`terminal_run()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `command` | `str` | 必填 | 要在沙箱内执行的 shell 命令；透传给 `sandbox.execute_command(command)`，需在 30s 内完成，访问沙箱外路径会抛 SandboxError |
+
+**落库要点**：成功先 `_audit("terminal_run", command, allowed=True)` 再返回输出（LocalSandbox 已截断 500 字符详情）；捕获 `SandboxError` 后 `_audit(..., allowed=False, reason=str(exc))` 并返回"（沙箱拦截）{exc}"——catch 异常是硬要求，不 catch 会把异常炸进模型工具循环。
 
 ## ❓ Q&A / 知识点
 
-### terminal_run / read_file 走沙箱会不会影响 M1-M3 的工具？（2026-10-01 用户提问）
+### 1. terminal_run / read_file 走沙箱会不会影响 M1-M3 的工具？（2026-10-01 用户提问）
 
 **一句话**：不会。`terminal_run` / `read_file` / `write_file` 是 M4 **全新独立注册的工具**，与 M1-M3 已有工具互不干扰。
 
@@ -228,13 +259,13 @@ def terminal_run(command: str) -> str:
 
 **结论**：沙箱是**叠加在新工具内部**的一层安全壳，M1-M3 工具既不 import 它、也不被它改造。CLI 装配段（`cli/main.py:176-179`）只是额外 `set_sandbox_provider` + 注入审计仓库，不改动已有装配逻辑。（`read_file/write_file` 侧的呼应见 `file_tools.md`。）
 
-### 为什么 `sandbox` 取不到时返回"（沙箱不可用）"而不是抛异常？
+### 2. 为什么 `sandbox` 取不到时返回"（沙箱不可用）"而不是抛异常？
 
 **一句话**：工具任何异常都不能炸进模型循环——取不到沙箱是"环境未就绪"，应给模型一句可读提示让它停下，而不是抛栈。
 
 与 `SandboxError` 分支同理：本文件对所有外部依赖（沙箱、审计）都做了"软失败"——沙箱不可用返回占位字符串，沙箱拦截返回友好提示，审计异常 `except: pass`。模型拿到的永远是字符串结果，不会收到未捕获异常导致工具循环崩溃。
 
-### bash 子代理为什么只白名单 terminal_run？
+### 3. bash 子代理为什么只白名单 terminal_run？
 
 **一句话**：最小权限——`subagents/builtins/bash_agent.py:54` 配置 `tools=["terminal_run"]`，bash 子代理只能跑命令，不能直接读写文件或调知识库，命令逃逸与路径越界统一由 `LocalSandbox._resolve` 在沙箱层拦截。
 
@@ -247,3 +278,4 @@ def terminal_run(command: str) -> str:
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

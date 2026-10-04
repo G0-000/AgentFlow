@@ -111,7 +111,11 @@ from langchain.tools import tool
 _plan: dict = {}
 ```
 
-**整块解析**：依赖极少——`Literal`（action 枚举）+ LangChain `tool`。`_plan` 是模块级全局 dict（M2 内存版，原版计划是独立文档），当前只用一个 key `content` 存计划全文。进程重启即清空（风险点 1）；M3+ 落盘时只替换存储实现，工具签名不动。
+**结构简析**：依赖极少——`Literal`（action 枚举）+ LangChain `tool`。`_plan` 是模块级全局 dict（M2 内存版，原版计划是独立文档），当前只用一个 key `content` 存计划全文。
+
+本块无函数签名，不展开参数表。
+
+**落库要点**：M2 内存 dict 进程重启即清空（风险点 1）；M3+ 落盘时只替换存储实现，工具签名不动。
 
 ### 块 2：`_PLAN_DESCRIPTION` —— 给模型看的说明书
 
@@ -125,7 +129,11 @@ action=save: 保存计划。
 """
 ```
 
-**整块解析**：说明书约定三动作——get 读、update 写（plan_text 必填）、save 保存；最后明确"会话级、跨会话不保留"，让模型知道这不是长期任务管理。
+**结构简析**：说明书约定三动作——get 读、update 写（plan_text 必填）、save 保存；最后明确"会话级、跨会话不保留"，让模型知道这不是长期任务管理。
+
+本块是模块级常量字符串，无函数签名，不展开参数表。
+
+**补充**：作为 `@tool` 的 `description=` 传入，模型按它决定何时调、怎么填参。
 
 ### 块 3：`@tool` 装饰器 + 函数体三分支
 
@@ -146,11 +154,20 @@ def plan_tool(
     return "（暂无计划。需要时可用 plan update 写入）"
 ```
 
-**整块解析**：整个工具就两个分支——① `update`/`save` 走同一分支（M2 同实现，语义为 M3+ 持久化预留）：先查 `plan_text` 为空就报错（**不静默覆盖**，风险点 2），有值才写入 `_plan["content"]`；② 否则按 get 处理：有计划就全文返回，无计划返回引导文案。`return_direct=True` 结果直回用户。注意 update 和 save 在 M2 完全等价（都改内存 content），拆分留给 M3+。
+**结构简析**：整个工具就两个分支——① `update`/`save` 走同一分支（M2 同实现，语义为 M3+ 持久化预留）：先查 `plan_text` 为空就报错（**不静默覆盖**，风险点 2），有值才写入 `_plan["content"]`；② 否则按 get 处理：有计划就全文返回，无计划返回引导文案。
+
+**`plan_tool()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `action` | `Literal["get", "update", "save"]` | `"get"` | `get`=读取当前计划（默认）；`update`/`save`=写入计划内容（M2 同实现，save 语义为 M3+ 持久化预留） |
+| `plan_text` | `str \| None` | `None` | 仅 update/save 用；为空则返回"update/save 需要 plan_text 参数"（不静默覆盖），有值才写 `_plan["content"]` |
+
+**落库要点**：写入即 `_plan["content"] = plan_text`（内存 dict），返回"计划已保存"；get 命中返回 `f"当前计划:\n{_plan['content']}"`，无内容返回引导文案。`return_direct=True` 结果直回用户。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 update 和 save 在 M2 是同一份实现？
+### 1. 为什么 update 和 save 在 M2 是同一份实现？
 
 **一句话**：为 M3+ 持久化预留语义接口——M2 内存阶段两者无差别，落盘后再拆开。
 
@@ -161,7 +178,7 @@ def plan_tool(
 
 现在就把两个 action 都暴露给模型（description 里也列了），是为了**接口契约先行**：模型现在就学会"写计划用 update/save"，M3+ 真接持久层时只改函数体里 save 的存储动作，签名和模型用法都不变。
 
-### 为什么 update/save 缺 plan_text 要报错，不静默处理？
+### 2. 为什么 update/save 缺 plan_text 要报错，不静默处理？
 
 **一句话**：静默覆盖/空写会悄悄抹掉已有计划，报错能让模型补参数重试。
 
@@ -176,3 +193,4 @@ def plan_tool(
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：plan_tool.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

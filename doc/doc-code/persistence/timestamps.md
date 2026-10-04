@@ -81,7 +81,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 ```
 
-**整块解析**：`UTC` 是 Python 3.11+ 提供的时区常量（等价于 `timezone.utc`），`datetime` 是日期时间类。本文件不引任何业务模块——它是最底层的工具，被各处 persistence 代码反向依赖，自身必须零业务依赖。
+**结构简析**：`UTC` 是 Python 3.11+ 提供的时区常量（等价于 `timezone.utc`），`datetime` 是日期时间类。
+
+**补充**：本文件不引任何业务模块——它是最底层的工具，被各处 persistence 代码反向依赖，自身必须零业务依赖。
 
 ### 块 2：`now_utc_iso` —— 全库唯一时间戳来源
 
@@ -94,11 +96,15 @@ def now_utc_iso() -> str:
     return datetime.now(UTC).isoformat()
 ```
 
-**整块解析**：整个文件就这一个函数。`datetime.now(UTC)` 拿到**带时区信息**的当前 UTC 时间，`.isoformat()` 转成标准 ISO 字符串（形如 `2026-09-28T15:00:00.123456+00:00`）。它是"全库唯一时间戳来源"——业务表的 `created_at`/`updated_at` 都应从这里取，避免各模块自己格式化导致时区/格式漂移。存 UTC、显示转本地，职责切在存储层与展示层之间。
+**结构简析**：整个文件就这一个函数。`datetime.now(UTC)` 拿到**带时区信息**的当前 UTC 时间，`.isoformat()` 转成标准 ISO 字符串（形如 `2026-09-28T15:00:00.123456+00:00`）。
+
+**`now_utc_iso()` 参数逐条解释**：无参数，直接返回 `datetime.now(UTC).isoformat()`。
+
+**落库要点/补充**：它是「全库唯一时间戳来源」——业务表的 `created_at`/`updated_at` 都应从这里取，避免各模块自己格式化导致时区/格式漂移；存 UTC、显示转本地，职责切在存储层与展示层之间（M8 前端处理）。
 
 ## ❓ Q&A / 知识点
 
-### 为什么用 `datetime.now(UTC)` 而不是 `datetime.utcnow()`？
+### 1. 为什么用 `datetime.now(UTC)` 而不是 `datetime.utcnow()`？
 
 **一句话**：`datetime.utcnow()` 返回的是**不带时区**的 naive datetime（且在 Python 3.12 已废弃）；`datetime.now(UTC)` 返回带 `+00:00` 时区的 aware datetime，语义明确、不易错。
 
@@ -109,7 +115,7 @@ def now_utc_iso() -> str:
 
 带时区的时间序列化出来天然是 UTC，不会混入本地时区，全库时间口径一致。
 
-### 为什么全库要收敛到一个时间戳函数？
+### 2. 为什么全库要收敛到一个时间戳函数？
 
 **一句话**：时间格式一旦各写各的，就会出现"有的存本地时间、有的存 UTC、有的带毫秒有的不带"——排序、展示、对比全部失真。
 
@@ -122,3 +128,4 @@ def now_utc_iso() -> str:
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：timestamps.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

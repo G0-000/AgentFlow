@@ -122,7 +122,11 @@ from __future__ import annotations
 from langchain.tools import tool
 ```
 
-**整块解析**：模块顶部**不 import requests、不 import re**——这是刻意的轻量设计：requests 是重依赖，放在 `_fetch_text` 函数体内 import（块 2），配合 tools.py 的延迟加载，import 本工具模块时不触发 requests 加载。顶部只保留 LangChain 的 `tool` 装饰器。
+**结构简析**：模块顶部**不 import requests、不 import re**——这是刻意的轻量设计：requests 是重依赖，放在 `_fetch_text` 函数体内 import（块 2），配合 tools.py 的延迟加载，import 本工具模块时不触发 requests 加载。顶部只保留 LangChain 的 `tool` 装饰器。
+
+本块无函数签名，不展开参数表。
+
+**补充**：这是"双重延迟"的一环——先延迟加载工具模块，再延迟加载模块里的重依赖 requests。
 
 ### 块 2：`_fetch_text` —— 抓取 + 粗清洗 + 截断核心
 
@@ -150,7 +154,16 @@ def _fetch_text(url: str, timeout: int = 10) -> str:
         return f"（抓取失败: {type(exc).__name__}: {str(exc)[:120]}）"
 ```
 
-**整块解析**：分两道 try——① **依赖兜底**：`import requests` 失败（未装）直接返回友好提示，不让整个 import 崩；② **网络+清洗主流程**：`requests.get` 带 `timeout=10` 防挂死，自定义 `User-Agent: AgentFlow-M2/0.1` 标识；`raise_for_status()` 把 4xx/5xx 转异常。清洗三步走：先删 script/style 块（`[\s\S]*?` 跨行非贪婪匹配），再删所有 `<...>` 标签，最后把空白压成单空格。`text[:2000]` 硬截断控 token 成本；空串兜底"（页面无可见文本）"。最外层 `except Exception` 吞掉一切异常，只返回**异常类型名 + 消息前 120 字**——工具调用绝不炸掉 Agent 循环。
+**结构简析**：分两道 try——① **依赖兜底**：`import requests` 失败（未装）直接返回友好提示，不让整个 import 崩；② **网络+清洗主流程**：`requests.get` 带 `timeout` 防挂死，自定义 `User-Agent: AgentFlow-M2/0.1`；`raise_for_status()` 把 4xx/5xx 转异常。清洗三步走：先删 script/style 块（`[\s\S]*?` 跨行非贪婪匹配），再删所有 `<...>` 标签，最后把空白压成单空格。`text[:2000]` 硬截断控 token 成本；空串兜底"（页面无可见文本）"。
+
+**`_fetch_text()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `url` | `str` | 必填 | 目标网页 URL；透传给 `requests.get(url, ...)`，非法/不可达地址会在异常分支兜底 |
+| `timeout` | `int` | `10` | 请求超时秒数；`requests.get(url, timeout=timeout, ...)` 超时挂死时抛异常，走最外层 except 返回失败提示 |
+
+**补充**：最外层 `except Exception` 吞掉一切异常，返回 `f"（抓取失败: {type(exc).__name__}: {str(exc)[:120]}）"`——只报异常类型名 + 消息前 120 字，工具调用绝不炸掉 Agent 循环。
 
 ### 块 3：`_FETCH_URL_DESCRIPTION` —— 给模型看的说明书
 
@@ -162,7 +175,11 @@ _FETCH_URL_DESCRIPTION = """\
 """
 ```
 
-**整块解析**：说明书三行——能力（URL→正文文本，最多 2000 字）、触发场景（打开网页/看链接/抓页面）、局限（仅静态页，JS 渲染可能抓不到）。最后一句局限写进 description 很关键：让模型在遇到 SPA 页面时**有心理预期**，不至于抓空后硬编内容。
+**结构简析**：说明书三行——能力（URL→正文文本，最多 2000 字）、触发场景（打开网页/看链接/抓页面）、局限（仅静态页，JS 渲染可能抓不到）。
+
+本块是模块级常量字符串，无函数签名，不展开参数表。
+
+**补充**：最后一句局限写进 description 很关键——让模型遇到 SPA 页面时有心理预期，不至于抓空后硬编内容。
 
 ### 块 4：`@tool` 装饰器 + `fetch_url_tool` 入口
 
@@ -175,11 +192,19 @@ def fetch_url_tool(url: str) -> str:
     return _fetch_text(url)
 ```
 
-**整块解析**：薄入口层——注册名 `"fetch_url"`，绑定说明书，`return_direct=True`。函数只做一件事：`if not url` 防空（空串/None 直接提示，不进网络请求），否则委托 `_fetch_text`。抓取、清洗、异常处理全在 `_fetch_text` 内部，入口保持最简——未来换 html2text/浏览器渲染只改 `_fetch_text`，入口签名不动。
+**结构简析**：薄入口层——注册名 `"fetch_url"`，绑定说明书，`return_direct=True`。函数只做一件事：`if not url` 防空（空串/None 直接提示，不进网络请求），否则委托 `_fetch_text`。
+
+**`fetch_url_tool()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `url` | `str` | 必填 | 目标网页 URL；`if not url` 空串/None 直接返回"需要 url 参数"，不进网络请求；否则委托 `_fetch_text(url)` |
+
+**补充**：抓取、清洗、异常处理全在 `_fetch_text` 内部，入口保持最简——未来换 html2text/浏览器渲染只改 `_fetch_text`，入口签名不动。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 requests 要写在函数体内 import，而不是文件顶部？
+### 1. 为什么 requests 要写在函数体内 import，而不是文件顶部？
 
 **一句话**：让"加载本工具模块"和"真正发网络请求"解耦——模块启动轻，重依赖按需才加载。
 
@@ -190,7 +215,7 @@ def fetch_url_tool(url: str) -> str:
 
 配合 tools.py 的 `get_builtin_tools` 函数内 import，整个链路是**双重延迟**：先延迟加载工具模块，再延迟加载模块里的重依赖 requests。即使 requests 没装，工具也能注册、能被模型看到（只是调用时返回"requests 未安装"提示），不会因为缺依赖拖垮 CLI 启动。
 
-### 为什么抓取失败要"返回友好字符串"而不是抛异常？
+### 2. 为什么抓取失败要"返回友好字符串"而不是抛异常？
 
 **一句话**：工具跑在 Agent 模型循环里，抛异常会打断整个对话流；返回一段人话提示，模型能据此告知用户或换方案。
 
@@ -205,3 +230,4 @@ def fetch_url_tool(url: str) -> str:
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：fetch_url_tool.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

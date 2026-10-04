@@ -96,7 +96,9 @@ from langchain_openai import ChatOpenAI
 from agentflow.config.model_config import ChatModelConfig
 ```
 
-**整块解析**：两个 import——`ChatOpenAI` 是 LangChain 对 OpenAI 协议的封装（向 `base_url` 发 `/chat/completions`，DeepSeek/GLM/Ollama/LM Studio 都兼容这个协议）；`ChatModelConfig` 是入参类型。这个文件就是"构造 ChatOpenAI 实例"的收敛层。
+**结构简析**：两个 import——`ChatOpenAI` 是 LangChain 对 OpenAI 协议的封装（向 `base_url` 发 `/chat/completions`，DeepSeek/GLM/Ollama/LM Studio 都兼容这个协议）；`ChatModelConfig` 是入参类型。
+
+**补充**：这个文件就是「构造 ChatOpenAI 实例」的收敛层。
 
 ### 块 2：`extra_body` 装配 —— zhipu 思维链开关
 
@@ -110,7 +112,15 @@ from agentflow.config.model_config import ChatModelConfig
         extra_body["thinking"] = {"type": "disabled"}
 ```
 
-**整块解析**：`extra_body` 是要透传给底层 HTTP 请求体的供应商专属字段。只有 `provider == "zhipu"` 时才写入 `thinking={"type":"disabled"}`——根因是 P-016：智谱 thinking 模型默认开思维链，流式时正文在 `delta.reasoning_content`，而 langchain-openai 只解析 `delta.content`，结果 CLI 打出来全是空。关掉思考模式后内容走标准 `content` 字段，流式才正常。对话场景不需要思维链，所以直接关。
+**结构简析**：本块是 `create_openai_compatible_chat(cfg)` 的函数体前半——`extra_body` 初始化为空 dict，仅当 `cfg.provider == "zhipu"` 时写入 `thinking={"type":"disabled"}`。
+
+**`create_openai_compatible_chat()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `cfg` | `ChatModelConfig` | 必填 | 对话模型配置；`base_url` 指向对应供应商的 OpenAI 兼容端点；本块只读 `cfg.provider` 决定是否加 zhipu 补丁 |
+
+**落库要点/补充**：根因是 P-016——智谱 thinking 模型默认开思维链，流式时正文在 `delta.reasoning_content`，而 langchain-openai 只解析 `delta.content`，结果 CLI 打出来全是空；关掉思考模式后内容走标准 `content` 字段，流式才正常（对话场景不需要思维链，所以直接关）。
 
 ### 块 3：实例化 `ChatOpenAI` —— 收敛层出口
 
@@ -127,11 +137,13 @@ from agentflow.config.model_config import ChatModelConfig
     )
 ```
 
-**整块解析**：把 `ChatModelConfig` 的字段一一映射给 `ChatOpenAI` 构造器。三个设计点：① `timeout=60` 是兜底——免费模型高峰可能挂起不返回，60 秒抛 APITimeoutError，由 CLI 容错打印，不会无限等（P-015 实测限流）；② 最后一行 `**({"extra_body": extra_body} if extra_body else {})` 是条件传参——extra_body 为空（非 zhipu）时就不传这个 kwarg，避免给 ChatOpenAI 塞个空 dict；③ api_key 为空会在构造时抛 Missing credentials，这是"缺 key"的真正暴露点。
+**结构简析**：把 `ChatModelConfig` 的字段一一映射给 `ChatOpenAI` 构造器（api_key/base_url/model/temperature 透传 + 硬编码 `timeout=60`），最后用三元组展开条件传 `extra_body`。
+
+**落库要点/补充**：① `timeout=60` 是兜底——免费模型高峰可能挂起不返回，60 秒抛 APITimeoutError，由 CLI 容错打印，不会无限等（P-015 实测智谱 GLM-4.7-Flash 高峰 code 1305 限流）；② `**({"extra_body": extra_body} if extra_body else {})` 是条件传参——extra_body 为空（非 zhipu）时就不传这个 kwarg，避免给 ChatOpenAI 塞个空 dict；③ api_key 为空会在构造时抛 Missing credentials，这是「缺 key」的真正暴露点。本块无新增参数，沿用块 2 的 `cfg`。
 
 ## ❓ Q&A / 知识点
 
-### 为什么智谱必须关掉 thinking？（P-016 根因）
+### 1. 为什么智谱必须关掉 thinking？（P-016 根因）
 
 **一句话**：不关的话，流式正文被塞进 `delta.reasoning_content`，而 langchain-openai 只读 `delta.content`，CLI 一个字都打不出来。
 
@@ -142,7 +154,7 @@ from agentflow.config.model_config import ChatModelConfig
 
 `extra_body["thinking"] = {"type": "disabled"}` 就是在请求体里告诉智谱"对话场景不要思维链"。
 
-### extra_body 为空时为什么用三元组展开？
+### 2. extra_body 为空时为什么用三元组展开？
 
 **一句话**：`**({"extra_body": extra_body} if extra_body else {})`——有 patch 才传参，没 patch 就不传，保持 ChatOpenAI 构造签名干净。
 
@@ -159,3 +171,4 @@ from agentflow.config.model_config import ChatModelConfig
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：patched_openai.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

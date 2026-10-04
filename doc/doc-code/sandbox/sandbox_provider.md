@@ -117,9 +117,11 @@ from abc import ABC, abstractmethod
 from agentflow.sandbox.sandbox import Sandbox
 ```
 
-**整块解析**：只引三样——`threading`（锁）、`abc`（提供者接口）、以及
-`sandbox.Sandbox`（get 方法的返回类型）。注意这里**没有** import NoopSandboxProvider
-——它被刻意推迟到 get 函数体内（块 4），这是本模块防循环导入的关键手法。
+**结构简析**：只引三样——`threading`（锁）、`abc`（提供者接口）、`sandbox.Sandbox`（get 方法的返回类型）。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：这里**没有** import NoopSandboxProvider——它被刻意推迟到 get 函数体内（块 4），是本模块防循环导入的关键手法。
 
 ### 块 2：`SandboxProvider` ABC —— 提供者契约
 
@@ -140,10 +142,27 @@ class SandboxProvider(ABC):
         """归还沙箱（当前实现多为空操作）。"""
 ```
 
-**整块解析**：三个方法构成"借还"模型——`acquire` 借出（返回 id，可按 thread_id 路由，
-M4 两个实现都忽略该参数）、`get` 按 id 查实例（查不到返回 None）、`release` 归还。
-当前两个实现（Noop/Local）都是**固定单例**：acquire 永远返回同一个 id，
-release 是空操作——借还模型为未来"每线程一个沙箱/远程容器池"预留，M4 不展开。
+**结构简析**：`SandboxProvider(ABC)` 提供者契约，三个方法构成"借还"模型。方法体只有 docstring，靠 `@abstractmethod` 约束子类。
+
+**`acquire()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str \| None` | `None` | 线程标识（可按它路由不同沙箱，M4 两个实现都忽略该参数）；返回取得的沙箱 id 字符串 |
+
+**`get()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `sandbox_id` | `str` | 必填 | 要取的沙箱 id；按 id 查实例，查不到返回 `None` |
+
+**`release()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `sandbox_id` | `str` | 必填 | 要归还的沙箱 id；当前实现多为空操作 |
+
+**落库要点**：当前两个实现（Noop/Local）都是固定单例——acquire 永远返回同一个 id、release 空操作；借还模型为未来"每线程一个沙箱/远程容器池"预留，M4 不展开。
 
 ### 块 3：模块级单例状态
 
@@ -153,9 +172,11 @@ _provider: SandboxProvider | None = None
 _provider_lock = threading.Lock()
 ```
 
-**整块解析**：模块顶层两个变量就是全部"全局"——`_provider` 持当前提供者（None=未注入，
-走默认），`_provider_lock` 是保护它的锁。单例不靠类变量、靠模块全局，这是 Python 常见写法：
-`import` 一次模块就一份状态。docstring 风险点注明：多线程访问必须走锁。
+**结构简析**：模块顶层两个变量就是全部"全局"——`_provider: SandboxProvider | None = None` 持当前提供者（None=未注入，走默认），`_provider_lock = threading.Lock()` 是保护它的锁。
+
+本块无可逐条解释的函数（仅模块级变量赋值）。
+
+**补充**：单例不靠类变量、靠模块全局，这是 Python 常见写法——`import` 一次模块就一份状态。多线程访问必须走 `_provider_lock`。
 
 ### 块 4：`get_sandbox_provider` —— 惰性 + 延迟导入
 
@@ -172,11 +193,11 @@ def get_sandbox_provider() -> SandboxProvider:
         return _provider
 ```
 
-**整块解析**：两个设计点——① **惰性**：不注入时才建 Noop，建完缓存进 `_provider`；
-② **延迟导入**：`NoopSandboxProvider` 在函数体内 import。为什么要延迟：noop.py 顶部
-`from agentflow.sandbox.sandbox_provider import SandboxProvider`（noop.py:41），
-若本模块顶部再 import noop 就成了环。函数内 import 在首次调用时才解析，环自然解开。
-整段在 `with _provider_lock` 内，多线程下"检查 None + 建实例"是原子的。
+**结构简析**：取全局沙箱提供者。两个设计点——① 惰性：不注入时才建 Noop，建完缓存进 `_provider`；② 延迟导入：`NoopSandboxProvider` 在函数体内 import。整段在 `with _provider_lock` 内，多线程下"检查 None + 建实例"是原子的。
+
+**`get_sandbox_provider()` 参数逐条解释**：无参数。`global _provider`，锁内若 `_provider is None` 则函数内延迟 import NoopSandboxProvider 并实例化，最后返回 `_provider`。
+
+**落库要点**：为什么延迟导入——noop.py 顶部 `from agentflow.sandbox.sandbox_provider import SandboxProvider`，若本模块顶部再 import noop 就成环；函数内 import 在首次调用时才解析，环自然解开。
 
 ### 块 5：`set_sandbox_provider` / `reset_sandbox_provider` —— 注入与还原
 
@@ -193,14 +214,21 @@ def reset_sandbox_provider() -> None:
     set_sandbox_provider(None)
 ```
 
-**整块解析**：set 直接覆盖 `_provider`（同样在锁内）。妙处在于**传 None = 恢复默认**：
-`reset` 只是 `set(None)`——下一次 get 发现 None，会按块 4 的逻辑重建 NoopSandboxProvider。
-所以 CLI 的 `set_sandbox_provider(LocalSandboxProvider(...))` 与测试的
-`set_sandbox_provider(tmp)` 用的是同一个入口，退出时 `reset()` 即干净还原。
+**结构简析**：注入与还原一对函数。set 直接在锁内覆盖 `_provider`；reset 只是 `set(None)`——下一次 get 发现 None，会按块 4 的逻辑重建 NoopSandboxProvider。
+
+**`set_sandbox_provider()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `provider` | `SandboxProvider \| None` | 必填 | 要注入的提供者实例；传 `None` 表示恢复默认（下次 get 重建 Noop） |
+
+**`reset_sandbox_provider()` 参数逐条解释**：无参数。内部就是 `set_sandbox_provider(None)`，测试 teardown 用。
+
+**落库要点**：CLI 的 `set_sandbox_provider(LocalSandboxProvider(...))` 与测试的 `set_sandbox_provider(tmp)` 用同一个入口，退出时 `reset()` 即干净还原——刻意保持"None = 未初始化"的单一语义，重建 Noop 的逻辑只写在 get 一处。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 get 函数体内要延迟 import NoopSandboxProvider？
+### 1. 为什么 get 函数体内要延迟 import NoopSandboxProvider？
 
 **一句话**：解包级循环导入——noop.py 顶部 import 了本模块的 SandboxProvider，
 本模块顶部若再 import noop 就成环；函数体内 import 在首次调用时才解析，环被错开。
@@ -209,7 +237,7 @@ def reset_sandbox_provider() -> None:
 顶层 import local/noop/sandbox_provider；真正在运行时第一次 get 时才落到
 `NoopSandboxProvider()` 实例化。
 
-### set_sandbox_provider(None) 为什么等于"恢复默认"，而不是直接建 Noop？
+### 2. set_sandbox_provider(None) 为什么等于"恢复默认"，而不是直接建 Noop？
 
 **一句话**：刻意保持"None = 未初始化"的单一语义——重建 Noop 的逻辑只写在 get 一处，
 reset 不重复实现。测试 teardown 调 reset 后，下一个用例的 get 会自然重建默认 Noop，
@@ -226,3 +254,4 @@ reset 不重复实现。测试 teardown 调 reset 后，下一个用例的 get �
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

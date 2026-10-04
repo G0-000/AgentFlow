@@ -90,7 +90,9 @@ from agentflow.persistence.db import connect
 from agentflow.persistence.schema import SCHEMA_SQL
 ```
 
-**整块解析**：bootstrap 自己**不开连接、也不写建表 SQL**，它只是一个"编排者"——`connect`（db.py）负责带项目级默认配置打开连接，`SCHEMA_SQL`（schema.py）是唯一的表定义来源。`sqlite3` 仅用于类型标注（返回 `sqlite3.Connection`）。这种"建表 SQL 与执行分离"让加表只改 schema.py，本文件一行不动。
+**结构简析**：bootstrap 自己**不开连接、也不写建表 SQL**，它只是一个「编排者」——`connect`（db.py）负责带项目级默认配置打开连接，`SCHEMA_SQL`（schema.py）是唯一的表定义来源；`sqlite3` 仅用于类型标注（返回 `sqlite3.Connection`）。
+
+**补充**：这种「建表 SQL 与执行分离」让加表只改 schema.py，本文件一行不动。
 
 ### 块 2：`init_db` 签名 + docstring —— 职责声明
 
@@ -109,7 +111,15 @@ def init_db(db_path: str) -> sqlite3.Connection:
     """
 ```
 
-**整块解析**：签名只有一个入参 `db_path`（传 `":memory:"` 即内存库，跑测试无污染）。返回值不是"成功/失败"标志，而是**建好表的连接对象本身**——CLI 拿到后可继续在同一连接上做业务读写，不必再开新连接。docstring 里的"设计说明"明确了演进路径：未来加 M3/M5 的表只动 schema.py。
+**结构简析**：签名只有一个入参 `db_path`，返回值不是「成功/失败」标志，而是**建好表的连接对象本身**——CLI 拿到后可继续在同一连接上做业务读写，不必再开新连接。
+
+**`init_db()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `db_path` | `str` | 必填 | 数据库文件路径；传 `":memory:"` 即内存库（跑测试无污染） |
+
+**补充**：docstring 的「设计说明」明确了演进路径——未来加 M3/M5 的表只动 schema.py，不动这里。
 
 ### 块 3：函数体 —— 四步编排
 
@@ -120,17 +130,19 @@ def init_db(db_path: str) -> sqlite3.Connection:
     return conn                   # ④ 返回给调用方
 ```
 
-**整块解析**：四步各司其职——① `connect` 拿到配置好的连接（Row/WAL/外键）；② `executescript` 把整段 SCHEMA_SQL（含多条 `CREATE TABLE IF NOT EXISTS` 与 `CREATE INDEX`）一次脚本执行完；③ `commit` 把 DDL 落盘；④ 返回连接。幂等的关键在 schema.py 的 `IF NOT EXISTS`——重复 `init_db` 不会因表已存在而报错，所以 CLI 每次启动都可安全调用。
+**结构简析**：四步各司其职——① `connect` 拿到配置好的连接（Row/WAL/外键）；② `executescript` 把整段 SCHEMA_SQL（含多条 `CREATE TABLE IF NOT EXISTS` 与 `CREATE INDEX`）一次脚本执行完；③ `commit` 把 DDL 落盘；④ 返回连接。
+
+**落库要点/补充**：幂等的关键在 schema.py 的 `IF NOT EXISTS`——重复 `init_db` 不会因表已存在而报错，所以 CLI 每次启动都可安全调用。本块无新增参数，沿用块 2 的 `db_path`。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 bootstrap 不自己 `sqlite3.connect`，而是调 `connect`？
+### 1. 为什么 bootstrap 不自己 `sqlite3.connect`，而是调 `connect`？
 
 **一句话**：连接配置（Row 工厂、WAL、外键开关）必须全局唯一，所有连接走 db.py 一处，避免各模块各自开连接导致配置漂移。
 
 如果 bootstrap 自己 `sqlite3.connect(db_path)`，就会漏设 `row_factory=Row`、`PRAGMA journal_mode=WAL`、`PRAGMA foreign_keys=ON`——尤其是外键，SQLite 默认 OFF，不开则 `session_messages.session_id REFERENCES sessions(id)` 形同虚设。统一委托 `connect` 等于"开连接"这个动作只有一份标准答案。
 
-### `executescript` 和逐条 `execute` 建表有什么区别？
+### 2. `executescript` 和逐条 `execute` 建表有什么区别？
 
 **一句话**：`executescript` 一次执行整段多语句 SQL（SCHEMA_SQL 里有多张表 + 索引），天然适合"一把建库"；且它在执行前会隐式提交挂起事务。
 
@@ -144,3 +156,4 @@ SCHEMA_SQL 含 5 张表 + 2 个索引，用 `executescript` 一把跑完，boots
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：bootstrap.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

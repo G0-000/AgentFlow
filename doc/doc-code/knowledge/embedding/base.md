@@ -109,7 +109,9 @@ DEFAULT_EMBEDDING_DIM = 1536
 MAX_BATCH_SIZE = 100
 ```
 
-**整块解析**：三个常量是"未配置时的兜底基准"。`DEFAULT_EMBEDDING_MODEL` 是 OpenAI 兼容命名，`DEFAULT_EMBEDDING_DIM=1536` 正是该模型的输出维度（二者配套）；`MAX_BATCH_SIZE=100` 标注单次批量上限。它们集中定义在这里，registry 的 `_resolve_provider`/`detect_embedding_dim` 在 cfg 为空时都回退到这组值。
+**结构简析**：三个常量是"未配置时的兜底基准"。`DEFAULT_EMBEDDING_MODEL` 是 OpenAI 兼容命名，`DEFAULT_EMBEDDING_DIM=1536` 正是该模型的输出维度（二者配套）；`MAX_BATCH_SIZE=100` 标注单次批量上限。
+
+**补充**：它们集中定义在这里，registry 的 `_resolve_provider`/`detect_embedding_dim` 在 cfg 为空时都回退到这组值——避免默认模型名/维度散落成魔法字符串。
 
 ### 块 2：异常类型 —— 两级错误体系
 
@@ -122,7 +124,9 @@ class EmbeddingDimensionError(EmbeddingError):
     """向量维度与预期不符。"""
 ```
 
-**整块解析**：两级异常树——`EmbeddingError` 是所有向量化错误的根（网络/鉴权/本地加载失败），`EmbeddingDimensionError` 继承它专管"维度不符"。调用方可以 `except EmbeddingError` 一把兜住全部向量化故障，也可以单独 catch 维度错误做更精细处理。注意 registry 里目前并未真正 raise `EmbeddingDimensionError`，但异常类型已预留。
+**结构简析**：两级异常树——`EmbeddingError` 是所有向量化错误的根（网络/鉴权/本地加载失败），`EmbeddingDimensionError` 继承它专管"维度不符"。调用方可以 `except EmbeddingError` 一把兜住全部向量化故障，也可以单独 catch 维度错误做更精细处理。
+
+**补充**：registry 里目前并未真正 raise `EmbeddingDimensionError`，但异常类型已预留，供未来维度校验抛错使用。
 
 ### 块 3：`EmbeddingProvider` 抽象基类 —— 唯一接口 `embed_batch`
 
@@ -140,17 +144,25 @@ class EmbeddingProvider:
         raise NotImplementedError
 ```
 
-**整块解析**：基类不做抽象基类装饰器（没有 ABCMeta/abstractmethod），而是用"默认 `raise NotImplementedError`"的轻量做法约束子类。它只暴露一件事：`embed_batch(texts) -> list[list[float]]`，契约有二——① 返回长度与输入等长；② **第 i 个输出对应第 i 个输入**（下游按 index 对齐）。`model_name` 是类属性默认值，子类 `__init__` 里会用 cfg.model 覆盖。registry 里的 Cloud/Local 两个 provider 就是这个接口的两个具体实现。
+**结构简析**：基类不用 ABCMeta/abstractmethod，而是用"默认 `raise NotImplementedError`"的轻量做法约束子类。它只暴露一件事：`embed_batch(texts) -> list[list[float]]`。`model_name: str = DEFAULT_EMBEDDING_MODEL` 是类属性默认值，子类 `__init__` 里会用 cfg.model 覆盖。
+
+**`embed_batch()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `texts` | `list[str]` | 必填 | 待向量化文本列表；契约有二——① 返回长度与 `texts` 等长；② **第 i 个输出对应第 i 个输入**（下游按 index 对齐）。基类默认实现直接 `raise NotImplementedError`，由 Cloud/Local 子类覆写 |
+
+**补充**：registry 里的 Cloud/Local 两个 provider 就是这个接口的两个具体实现；不覆写就调用的子类一旦被调会抛 `NotImplementedError`。
 
 ## ❓ Q&A / 知识点
 
-### 为什么基类不用 ABCMeta / abstractmethod？
+### 1. 为什么基类不用 ABCMeta / abstractmethod？
 
 **一句话**：M3 保持最轻量——用普通基类 + `raise NotImplementedError` 达到同样的"必须覆写"约束，零额外开销。
 
 子类不实现 `embed_batch` 时，一旦调用就抛 `NotImplementedError`，效果等价于抽象方法；区别只是编译期不强制（实例化不报错，调用才报错）。对 M3 这种只有两个已知子类、且都在同仓库实现的场景，够用。
 
-### base.py 与 registry.py 是什么关系？
+### 2. base.py 与 registry.py 是什么关系？
 
 **一句话**：base.py **定义接口**（`EmbeddingProvider` 长什么样、有哪些异常、默认常量），registry.py **实现并选择**这个接口（`Cloud/LocalEmbeddingProvider` 继承基类，`_resolve_provider` 按配置挑一个）。base 不知道 registry 的存在；registry import base。
 
@@ -162,3 +174,4 @@ class EmbeddingProvider:
 
 ---
 _2026-09-30 新建：M3 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

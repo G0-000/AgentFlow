@@ -118,7 +118,13 @@ def _exit() -> None:
         _active -= 1
 ```
 
-**整块解析**：并发测量设施。`_lock` 保护 `_active`（当前在跑数）与 `_peak`（历史峰值）两个模块级变量——线程池多线程同时增减，不加锁会读到脏值。`_enter` 在 FakeAgent.invoke 开头调用（进入并发窗口），`_exit` 在 finally 调用（无论成功失败都退出）。`_peak = max(_peak, _active)` 是"历史最高水位"记录法。
+**结构简析**：并发测量设施。模块级三个共享变量——`_lock`（threading.Lock）、`_active`（当前在跑数）、`_peak`（历史峰值）；配两个打点函数 `_enter` / `_exit`。线程池多线程同时增减，不加锁会读到脏值。
+
+**`_enter()` 参数逐条解释**：无参数。锁内 `_active += 1`，并 `_peak = max(_peak, _active)` 记录历史最高水位；在 FakeAgent.invoke 开头调用（进入并发窗口）。
+
+**`_exit()` 参数逐条解释**：无参数。锁内 `_active -= 1`；在 invoke 的 finally 里调用（无论成功失败都退出并发窗口）。
+
+**落库要点**：`_peak = max(_peak, _active)` 是"历史最高水位"记录法——它是后面 `assert _peak <= 3` 的证据来源。
 
 ### 块 2：FakeAgent —— 假子代理
 
@@ -140,7 +146,24 @@ class FakeAgent:
             _exit()
 ```
 
-**整块解析**：FakeAgent 的结构对齐真实 agent 的 `invoke(inputs) -> dict` 契约。`time.sleep(self.delay)` 制造可控的并发窗口（0.2s 足够让 5 个任务同时提交时只有 3 个真正并跑）；返回 `{"messages": [AIMessage(...)]}` 对齐 langchain 消息结构。`task = inputs["messages"][0]["content"]` 从输入里取任务文本拼到返回里——这样断言能精确到"任务一 → 子代理完成: 任务一"。
+**结构简析**：假子代理，结构对齐真实 agent 的 `invoke(inputs) -> dict` 契约。`time.sleep(self.delay)` 制造可控并发窗口，返回 `{"messages": [AIMessage(...)]}` 对齐 langchain 消息结构。
+
+**`__init__()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `prefix` | `str` | 必填 | 返回文本前缀，存 `self.prefix`（`"子代理完成: {task}"` 的"子代理完成"部分） |
+| `delay` | `float` | `0.15` | 模拟耗时秒数，`time.sleep(self.delay)` 制造并发窗口；0.2s 足够让 5 个任务同时提交时只有 3 个真正并跑 |
+
+**`invoke()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `inputs` | `dict` | 必填 | langchain agent.invoke 入参；`task = inputs["messages"][0]["content"]` 从中取任务文本 |
+
+行为：先 `_enter()` 打点 → try 里取 task、`time.sleep(self.delay)`、返回 `{"messages": [AIMessage(content=f"{prefix}完成: {task}")]}` → finally 里 `_exit()`。
+
+**落库要点**：把 task 文本拼进返回，断言能精确到"任务一 → 子代理完成: 任务一"。
 
 ### 块 3：_make_executor —— 真 executor + 假 agent 注入
 
@@ -161,7 +184,19 @@ def _reset_peak() -> None:
         _peak = 0
 ```
 
-**整块解析**：测试装配的核心。用真实 `SubagentExecutor`（保证被测的是生产代码路径），只把 `_build_agent` 替换成返回 FakeAgent 的 lambda——executor 内部 `run()` 调 `self._build_agent()` 时拿到的是假 agent。`tools=[]`、`model=None` 在 FakeAgent 下不会被使用。`_reset_peak` 每个用例前清零并发水位，保证用例间不互相污染。
+**结构简析**：测试装配核心。用真实 `SubagentExecutor`（保证测的是生产代码路径），只把 `_build_agent` 替换成返回 FakeAgent 的 lambda；配一个 `_reset_peak` 在每个用例前清零并发水位。
+
+**`_make_executor()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `delay` | `float` | `0.15` | 传给 `FakeAgent(prefix="子代理", delay=delay)` 的模拟耗时；返回装配好的 executor |
+
+内部：`cfg = get_subagent_config("general-purpose")` → `SubagentExecutor(cfg, tools=[], model=None)` → `execu._build_agent = lambda: fake`。`tools=[]`、`model=None` 在 FakeAgent 下不会被使用。
+
+**`_reset_peak()` 参数逐条解释**：无参数。锁内把 `_active`、`_peak` 清零，保证用例间不互相污染。
+
+**落库要点**：monkeypatch `_build_agent` 后，executor 内部 `run()` 调 `self._build_agent()` 拿到的就是假 agent——调度逻辑（线程池/排队/超时）全是生产代码，只有"模型调用"被假替身接管。
 
 ### 块 4：test_dispatch_parallel_returns_in_order —— 按序回传（验收点 3）
 
@@ -178,7 +213,11 @@ def test_dispatch_parallel_returns_in_order():
     assert all(r.status.value == "completed" for r in results)
 ```
 
-**整块解析**：`delay=0.05` 让任务快速完成（本用例不关心并发）。`results[0/1/2]` 逐位断言——`dispatch_parallel` 内部 `[f.result() for f in futures]` 按 futures 提交顺序取结果，与完成先后无关。最后 `all(... status == "completed")` 断言 3 个任务全部正常完成。
+**结构简析**：验收点 3——并行派发结果按输入顺序回传。`delay=0.05` 让任务快速完成（本用例不关心并发）。
+
+**`test_dispatch_parallel_returns_in_order()` 参数逐条解释**：无参数，直接断言按序回传——`results[0/1/2]` 逐位等于 `"子代理完成: 任务一/二/三"`，且 3 个任务全部 `status=="completed"`。
+
+**落库要点**：`dispatch_parallel` 内部 `[f.result() for f in futures]` 按 futures 提交顺序取结果，与完成先后无关——逐位断言就是钉死这个语义。
 
 ### 块 5：test_dispatch_parallel_peak_leq_3 —— 并发峰值（验收点 2）
 
@@ -194,7 +233,11 @@ def test_dispatch_parallel_peak_leq_3():
     assert all(r.status.value == "completed" for r in results)
 ```
 
-**整块解析**：验收点 2 的核心证据。`delay=0.2` 拉长并发窗口：如果排队失效（线程池无上限），5 个任务同时进入 invoke，`_peak` 会到 5；正确实现下 `ThreadPoolExecutor(max_workers=3)` 只有 3 个真并发，第 4/5 个排队等空位，`_peak == 3`。断言信息 `f"并发峰值 {_peak} 超过 3"` 在失败时直接给出实测值。
+**结构简析**：验收点 2 的核心证据——派 5 个任务，实际并发峰值 ≤3。`delay=0.2` 拉长并发窗口：排队失效（线程池无上限）时 `_peak` 会到 5；正确实现下只有 3 个真并发。
+
+**`test_dispatch_parallel_peak_leq_3()` 参数逐条解释**：无参数，直接断言 `_peak <= 3`、`len(results)==5`（5 个任务全完成）、全部 `status=="completed"`。
+
+**落库要点**：断言信息 `f"并发峰值 {_peak} 超过 3（排队失效）"` 在失败时直接给出实测值——正确实现下 `ThreadPoolExecutor(max_workers=3)` 只有 3 个真并发，第 4/5 个排队等空位，`_peak == 3`。
 
 ### 块 6：test_dispatch_parallel_max_parallel_capped —— 硬上限钳制
 
@@ -207,21 +250,25 @@ def test_dispatch_parallel_max_parallel_capped():
     assert _peak <= 3
 ```
 
-**整块解析**：双保险的第二层验证。调用方传 `max_parallel=10`，executor 内部 `min(int(max_parallel), MAX_CONCURRENT_SUBAGENTS)` 钳到 3——`_peak` 仍 ≤3。这条防"外部参数绕过硬上限"：即使未来 dispatch 工具忘了钳，executor 这层也兜住。
+**结构简析**：双保险的第二层验证——调用方传 `max_parallel=10`，executor 内部仍钳到 3。
+
+**`test_dispatch_parallel_max_parallel_capped()` 参数逐条解释**：无参数，直接断言 `execu.dispatch_parallel([f"t{i}" for i in range(6)], max_parallel=10)` 后 `_peak <= 3`。
+
+**落库要点**：executor 内部 `min(int(max_parallel), MAX_CONCURRENT_SUBAGENTS)` 钳到 3——防"外部参数绕过硬上限"：即使未来 dispatch 工具忘了钳，executor 这层也兜住。
 
 ## ❓ Q&A / 知识点
 
-### 为什么用 FakeAgent 而不是真实模型？（2026-10-01 用户提问）
+### 1. 为什么用 FakeAgent 而不是真实模型？（2026-10-01 用户提问）
 
 **一句话**：并发测试需要**精确可控的并发窗口**（每个任务睡 0.2s），真实模型调用的耗时不可控、还会烧 API 配额、测试变慢且不稳定。
 
 **依据源码**：`execu._build_agent = lambda: fake` 把 executor 内部的 agent 工厂替换掉——executor 的调度逻辑（线程池/排队/超时）全是生产代码，只有"模型调用"这一段被假替身接管。
 
-### 为什么 `_peak <= 3` 就能证明排队生效？
+### 2. 为什么 `_peak <= 3` 就能证明排队生效？
 
 **一句话**：`_peak` 是"同时进入 invoke 的最大数量"。若线程池不限制并发，5 个任务会同时进入（`_peak=5`）；正确实现下同时只有 3 个能进，其余在 `ThreadPoolExecutor` 队列里等空位，`_peak=3`。所以峰值本身就是排队的直接证据。
 
-### 按序回传和完成顺序是一回事吗？
+### 3. 按序回传和完成顺序是一回事吗？
 
 **不是**。`dispatch_parallel` 返回 `[f.result() for f in futures]`——按 **futures 提交顺序**逐个取结果，即使任务 2 先于任务 1 完成，`results[0]` 也是任务一的结果（`f.result()` 会等它跑完）。测试逐位断言就是钉死这个语义。
 
@@ -232,3 +279,4 @@ def test_dispatch_parallel_max_parallel_capped():
 3. 断言顺序 = 输入顺序是**验收点 3 的契约**（不是实现巧合）：改 executor 返回值顺序时，这里必须跟着改，且要先确认是"有意变更"。
 ---
 _2026-10-01 新建：tests 测试文档（用例级验收对照，对齐 doc-code 规范：目录/结构图/流程图/成块代码解析/Q&A/风险点）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

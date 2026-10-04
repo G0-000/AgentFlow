@@ -93,7 +93,11 @@ from __future__ import annotations
 from agentflow.subagents.config import SubagentConfig
 ```
 
-**整块解析**：与 general_purpose 同款——只依赖同包 `SubagentConfig`，本文件只 new 一个配置实例。
+**结构简析**：与 general_purpose 同款——只 import 同包 `SubagentConfig`，本文件只 new 一个配置实例。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：注册表装配在 builtins/__init__.py，本文件只产出配置对象。
 
 ### 块 2：BASH_AGENT_CONFIG 完整实例
 
@@ -119,26 +123,29 @@ BASH_AGENT_CONFIG = SubagentConfig(
 )
 ```
 
-**整块解析**：
+**结构简析**：直接 `SubagentConfig(...)` 构造一个 Bash 子代理配置实例，核心是用 `tools=["terminal_run"]` 白名单把能力面钉死在终端；未列的 `disallowed_tools` 走 config 默认黑名单。
 
-| 字段 | 取值 | 含义 |
-|---|---|---|
-| `name` | `"bash"` | 注册表键，与 BUILTIN_SUBAGENTS 键名逐字一致 |
-| `description` | 多行文本 | 告诉主 Agent：命令/脚本/批处理派它；阅读理解派 general-purpose |
-| `system_prompt` | `<行为准则>` | 只做命令执行、沙箱内完成、失败给退出码、不拿终端编辑文件、结束总结 |
-| `tools` | `["terminal_run"]` | **白名单：只放行终端工具**（最小权限，与 general-purpose 的 None 形成对照） |
-| `max_turns` | `50` | 比 general-purpose（100）紧——命令任务不需要那么多轮 |
-| `timeout_seconds` | `120` | 单任务上限 |
+**`SubagentConfig()` 参数逐条解释**（本实例实际传入的字段）：
 
-注意：本实例**没有显式传 disallowed_tools**，它用 config 默认黑名单；但因为 `tools=["terminal_run"]` 白名单已把工具集裁到只剩终端，黑名单这道在此处实际无额外可剔项。
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `name` | `str` | 必填 | `"bash"`，注册表键，与 `BUILTIN_SUBAGENTS` 键名逐字一致 |
+| `description` | `str` | 必填 | 多行文本，告诉主 Agent：命令/脚本/批处理派它；阅读理解类派 general-purpose |
+| `system_prompt` | `str` | 必填 | `<行为准则>`：只做命令执行、沙箱内完成、失败给退出码、不拿终端编辑文件、结束总结 |
+| `tools` | `list[str] \| None` | `None` | 此处显式 `["terminal_run"]`——**白名单只放行终端工具**（最小权限，与 general-purpose 的 None 形成对照） |
+| `model` | `str` | `"inherit"` | 此处显式 `"inherit"`，复用父模型 |
+| `max_turns` | `int` | `100` | 此处显式 `50`，比 general-purpose（100）紧——命令任务不需要那么多轮 |
+| `timeout_seconds` | `int` | `120` | 此处显式 120，单任务上限 |
+
+**落库要点**：本实例未显式传 `disallowed_tools`，用 config 默认黑名单；但因 `tools=["terminal_run"]` 白名单已把工具集裁到只剩终端，黑名单这道在此处实际无额外可剔项——白名单本身已足够窄。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 bash 子代理用白名单只留 terminal_run，而不是靠黑名单？
+### 1. 为什么 bash 子代理用白名单只留 terminal_run，而不是靠黑名单？
 
 **一句话**：最小权限原则——白名单是"只放行 terminal_run"，即便 config 黑名单以后被改松、或新增了别的工具，bash 子代理的能力面也被钉死在终端，不会意外拿到文件/知识库工具。黑名单是"排除危险项"，白名单是"只给安全项"，后者更窄更安全。
 
-### terminal_run 走沙箱，executor 层知道吗？
+### 2. terminal_run 走沙箱，executor 层知道吗？
 
 **一句话**：不知道，也不需要知道。executor 只把过滤后的工具集交给 create_agent；`terminal_run` 工具内部自己走 LocalSandboxProvider（cli/main.py:176 注入），命令越界由 sandbox._resolve 拦截。bash 子代理的"在沙箱内执行"是工具层行为，executor 无感知。
 
@@ -150,3 +157,4 @@ BASH_AGENT_CONFIG = SubagentConfig(
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

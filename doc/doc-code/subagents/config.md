@@ -92,7 +92,11 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 ```
 
-**整块解析**：本模块不依赖 langchain、不依赖任何业务包，纯数据类。`field` 是为了用 `default_factory`（黑名单是可变列表，不能写成 `[]` 默认值，否则类级共享导致跨实例污染）。`from __future__ import annotations` 让 `list[str] | None` 在旧 Python 也能做标注。
+**结构简析**：本块仅 import 语句，模块只依赖标准库 `dataclasses`，不 import langchain 或任何业务包，是纯数据类模块。`from __future__ import annotations` 让 `list[str] | None` 在旧版 Python 也能做延迟标注；单独引入 `field` 是为了给可变字段配 `default_factory`。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：`disallowed_tools` 是可变列表，不能写成类级 `= []` 默认值（否则所有实例共享同一列表、跨实例污染），必须用 `field(default_factory=...)`。
 
 ### 块 2：SubagentConfig 类与 docstring —— 字段说明书
 
@@ -113,7 +117,11 @@ class SubagentConfig:
     """
 ```
 
-**整块解析**：`@dataclass` 自动生成 `__init__` / `__repr__`，builtins 里只需关键字参数 new 实例。docstring 逐字段约定语义——尤其 `tools: None = 继承父级全部` 与 `disallowed_tools: 始终排除` 两条规则，是 executor._filter_tools 的判定依据。
+**结构简析**：`@dataclass` 自动生成 `__init__` / `__repr__` / `__eq__`，builtins 里只需按关键字参数 new 出实例。docstring 逐字段约定语义，是 executor 端 `_filter_tools` 的判定依据。
+
+本块仅为类声明 + docstring，字段的类型/默认值签名落在块 3，参数表见块 3。
+
+**补充**：两条关键规则——`tools: None = 继承父级全部`、`disallowed_tools: 始终排除`——只在 docstring 里声明，真正生效靠 executor 消费。
 
 ### 块 3：字段定义与默认值 —— 黑名单防递归的落点
 
@@ -130,22 +138,26 @@ class SubagentConfig:
     timeout_seconds: int = 120
 ```
 
-**整块解析**：
+**结构简析**：8 个字段中前 3 个（name/description/system_prompt）必填，其余带默认值。`disallowed_tools` 用 `default_factory` 生成独立新列表，是防递归派发的落点。
 
-| 字段 | 默认值 | 作用 |
-|---|---|---|
-| `name` | （必填） | 注册表查表键，必须与 BUILTIN_SUBAGENTS 键名一致 |
-| `tools` | `None` | None = 继承父级全部工具；传 list = 白名单裁剪 |
-| `disallowed_tools` | `["subagent", "dispatch_subagents", "ask_clarification"]` | 始终剔除，防递归派发 + 防子代理反问用户 |
-| `model` | `"inherit"` | M4 唯一支持值，复用父模型 |
-| `max_turns` | `100` | 模型最大轮数（bash 子代理在自己文件里改成 50） |
-| `timeout_seconds` | `120` | run() 默认超时秒数 |
+**`SubagentConfig()` 参数逐条解释**（即 dataclass 自动生成的 `__init__` 入参）：
 
-黑名单默认值是 `field(default_factory=lambda: [...])`——每个实例拿到一份独立新列表，不会被别的子代理改到。
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `name` | `str` | 必填 | 注册表查表键，必须与 registry 的 `BUILTIN_SUBAGENTS` 键名一致（如 `"general-purpose"` / `"bash"`） |
+| `description` | `str` | 必填 | 给主 Agent 看的说明——"何时派这个子代理"，供主 Agent 决策派发 |
+| `system_prompt` | `str` | 必填 | 子代理行为说明书，构建子代理时注入其 system prompt |
+| `tools` | `list[str] \| None` | `None` | 工具白名单；`None` = 继承父级全部工具（白名单不裁剪）；传 list = 只留名单内（bash 子代理只给 `["terminal_run"]`） |
+| `disallowed_tools` | `list[str] \| None` | `["subagent", "dispatch_subagents", "ask_clarification"]` | 工具黑名单，始终剔除；防子代理递归派发 + 防子代理反问用户（它面前没有用户） |
+| `model` | `str` | `"inherit"` | M4 唯一支持值，复用父 Agent 模型；多模型（各自配模型）留到 M6 |
+| `max_turns` | `int` | `100` | 模型最大轮数（防失控）；bash 子代理在自己文件里改成 50 |
+| `timeout_seconds` | `int` | `120` | 单任务最长执行秒数，`run()` 的默认超时 |
+
+**落库要点**：黑名单默认值用 `field(default_factory=lambda: [...])`——每个实例拿到一份独立新列表，不会被别的子代理改到。
 
 ## ❓ Q&A / 知识点
 
-### 为什么默认黑名单要排除 dispatch_subagents（防递归派发）？（2026-10-01 用户提问）
+### 1. 为什么默认黑名单要排除 dispatch_subagents（防递归派发）？（2026-10-01 用户提问）
 
 **一句话**：不排的话，子代理拿到派发工具后会再派子代理，形成 子代理 → 子代理 → 子代理 的无限嵌套，既烧 token 又炸并发。
 
@@ -161,7 +173,7 @@ class SubagentConfig:
 
 **双保险**：除了 config 黑名单，dispatch_tool.py 头部风险点注释（第 41 行）也写明"子代理工具集不要传 dispatch_subagents 自己（config 黑名单也排了）"——注入的工具集和 config 过滤两道都拦。
 
-### tools=None（继承）与 disallowed_tools（黑名单）是什么关系？
+### 2. tools=None（继承）与 disallowed_tools（黑名单）是什么关系？
 
 **一句话**：两者在 executor._filter_tools 里是串联两道闸门——先白名单、再黑名单。`tools=None` 表示不做白名单裁剪（全部继承父级），但黑名单这道永远生效。
 
@@ -186,3 +198,4 @@ class SubagentConfig:
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

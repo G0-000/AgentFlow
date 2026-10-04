@@ -98,7 +98,9 @@ import sqlite3
 from langgraph.checkpoint.sqlite import SqliteSaver
 ```
 
-**整块解析**：依赖极简——标准库 `sqlite3`（建连接）+ langgraph 官方包 `SqliteSaver`（同步检查点实现）。`from __future__ import annotations` 让类型注解延迟求值。本文件不手写任何存取 SQL：`SqliteSaver` 内部负责把图状态序列化、建表、按 thread_id 读写。
+**结构简析**：依赖极简——标准库 `sqlite3`（建连接）+ langgraph 官方包 `SqliteSaver`（同步检查点实现）。`from __future__ import annotations` 让类型注解延迟求值。
+
+**补充**：本文件不手写任何存取 SQL——`SqliteSaver` 内部负责把图状态序列化、建表、按 thread_id 读写。
 
 ### 块 2：`create_sqlite_checkpointer()` —— 工厂函数
 
@@ -122,22 +124,28 @@ def create_sqlite_checkpointer(db_path: str) -> SqliteSaver:
     return SqliteSaver(conn)
 ```
 
-**整块解析**：函数体只有两行——① `sqlite3.connect(db_path, check_same_thread=False)` 打开数据库文件；② 把连接交给 `SqliteSaver(conn)` 构造并返回。两个关键设计：
+**结构简析**：函数体只有两行——① `sqlite3.connect(db_path, check_same_thread=False)` 打开数据库文件；② 把连接交给 `SqliteSaver(conn)` 构造并返回。两个关键设计：
 
 | 关键点 | 为什么 |
 |---|---|
 | 直接构造 `SqliteSaver(conn)`，不用 `from_conn_string()` | 3.x 的 `from_conn_string` 返回上下文管理器，要 `with` 才拿得到实例；这里是装配阶段，直接构造更简单（P-010 教训） |
 | `check_same_thread=False` | CLI 虽单线程跑，但 langgraph 内部线程池可能跨线程访问连接；SQLite 的串行化由 WAL + 短事务保证 |
 
-返回值类型标注为 `SqliteSaver`，调用方（agent.py）把它直接传给 `create_agent(checkpointer=...)`。
+**`create_sqlite_checkpointer()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `db_path` | `str` | 必填 | SQLite 文件路径（建议与业务库同一个 `data/agentflow.db`）；`sqlite3.connect(db_path, check_same_thread=False)` 打开连接后交 `SqliteSaver(conn)` |
+
+**落库要点**：返回 `SqliteSaver`（持有 SQLite 连接），调用方（agent.py）直接传给 `create_agent(checkpointer=...)`；之后图每步 super-step 由 langgraph 自动 `saver.put`，按 thread_id 写 SQLite 快照。
 
 ## ❓ Q&A / 知识点
 
-### 为什么用 `SqliteSaver(conn)` 而不是 `from_conn_string()`？
+### 1. 为什么用 `SqliteSaver(conn)` 而不是 `from_conn_string()`？
 
 **一句话**：langgraph-checkpoint-sqlite 3.x 的 `from_conn_string()` 返回的是**上下文管理器**，必须 `with` 语句才能拿到 `SqliteSaver` 实例；本文件在装配函数里要**立刻返回一个 saver 给 create_agent**，没有 `with` 块可用，所以直接 `sqlite3.connect(...)` 建连接后 `SqliteSaver(conn)` 构造更顺手（P-010 教训）。
 
-### `check_same_thread=False` 危险吗？
+### 2. `check_same_thread=False` 危险吗？
 
 **一句话**：SQLite 默认禁止跨线程用同一个连接（`check_same_thread=True` 会抛错）。这里设 False 是因为 langgraph 内部线程池可能在别的线程访问该连接；并发安全不靠 SQLite 默认锁，而由 WAL 模式 + 短事务串行化保证。CLI 单线程跑，但工具节点可能在后台线程执行（P-018），必须放行。
 
@@ -149,3 +157,4 @@ def create_sqlite_checkpointer(db_path: str) -> SqliteSaver:
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：provider.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

@@ -108,7 +108,11 @@ from agentflow.sandbox import (
 )
 ```
 
-**整块解析**：测试跨三个域取料——`sandbox` 包（LocalSandbox/NoopSandbox/provider 三件套 + 两个异常）、`persistence`（init_db 建表 + SandboxAuditRepository 审计）、pytest（raises 断言）。`SandboxPermissionError` 是越界拦截的专有异常，`SandboxError` 是 Noop 的通用异常——测试据此区分"路径越界"与"一切被拒"。
+**结构简析**：测试跨三个域取料——`sandbox` 包（LocalSandbox/NoopSandbox/provider 三件套 + 两个异常）、`persistence`（init_db 建表 + SandboxAuditRepository 审计）、pytest（raises 断言）。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：`SandboxPermissionError` 是越界拦截的专有异常，`SandboxError` 是 Noop 的通用异常——测试据此区分"路径越界"与"一切被拒"。
 
 ### 块 2：test_local_sandbox_write_read_inside —— 隔离区内正常
 
@@ -120,7 +124,15 @@ def test_local_sandbox_write_read_inside(tmp_path):
     assert sb.read_file("note.txt") == "hello 沙箱"
 ```
 
-**整块解析**：验收点 4 的"正向"用例——沙箱不是只拦不干，隔离区内读写要正常。相对路径 `note.txt` 落在 `tmp_path` 根内，写后读回断言内容一致（含中文验证 UTF-8 往返）。
+**结构简析**：验收点 4 的"正向"用例——沙箱不是只拦不干，隔离区内读写要正常。`LocalSandbox(tmp_path)` 起一个临时沙箱，写 `note.txt` 后读回断言内容一致。
+
+**`test_local_sandbox_write_read_inside()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tmp_path` | `Path`（pytest fixture） | 注入 | pytest 内置临时目录，每个用例独立、结束自动清理；本用例把它当沙箱根 |
+
+**落库要点**：相对路径 `note.txt` 落在 `tmp_path` 根内，断言写后读回内容一致（含中文"hello 沙箱"验证 UTF-8 往返）。
 
 ### 块 3：test_local_sandbox_rejects_host_path —— 宿主路径拦截（核心）
 
@@ -136,7 +148,15 @@ def test_local_sandbox_rejects_host_path(tmp_path):
         sb.read_file("/etc/hosts")
 ```
 
-**整块解析**：验收点 4 的核心用例——**写和读两个方向都测**。`write_file("/etc/...")` 写宿主被拒（防篡改系统文件），`read_file("/etc/hosts")` 读宿主也被拒（防偷读系统文件）。路径用真实存在的宿主目录（/etc），如果 `_resolve` 的 `resolve()` 规范化失效（比如用了 normpath 被软链绕过），这里就是第一道防线被击穿的信号。
+**结构简析**：验收点 4 的核心用例——写和读两个方向都测宿主路径拦截。`write_file("/etc/...")` 写宿主被拒，`read_file("/etc/hosts")` 读宿主也被拒，均用 `pytest.raises(SandboxPermissionError)` 捕获。
+
+**`test_local_sandbox_rejects_host_path()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tmp_path` | `Path`（pytest fixture） | 注入 | pytest 内置临时目录，作为本用例的沙箱根 |
+
+**落库要点**：路径用真实存在的宿主目录（/etc）——如果 `_resolve` 的 `resolve()` 规范化失效（比如用了 normpath 被软链绕过），这里就是第一道防线被击穿的信号。
 
 ### 块 4：test_local_sandbox_rejects_traversal —— ../ 逃逸拦截
 
@@ -148,7 +168,15 @@ def test_local_sandbox_rejects_traversal(tmp_path):
         sb.write_file(str(tmp_path / ".." / "escape.txt"), "x")
 ```
 
-**整块解析**：路径穿越（path traversal）是文件沙箱最常见的逃逸手法。`tmp_path / ".." / "escape.txt"` 指向沙箱外的上级目录——`_resolve` 里 `Path.resolve()` 先把 `..` 规范化成真实路径，再做越界判断拦截。这个用例证明"规范化"这一步真的在做，而不是直接拿字符串比前缀。
+**结构简析**：路径穿越（path traversal）逃逸拦截用例。`tmp_path / ".." / "escape.txt"` 指向沙箱外上级目录，`pytest.raises(SandboxPermissionError)` 断言被拦。
+
+**`test_local_sandbox_rejects_traversal()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tmp_path` | `Path`（pytest fixture） | 注入 | pytest 内置临时目录，作为沙箱根；`tmp_path/".."/"escape.txt"` 即指向其上级（沙箱外） |
+
+**落库要点**：证明"规范化"这一步真的在做——`_resolve` 里 `Path.resolve()` 先把 `..` 规范化成真实路径再做越界判断，而不是直接拿字符串比前缀。
 
 ### 块 5：test_local_sandbox_execute_command_in_root —— 命令在根内执行
 
@@ -160,7 +188,15 @@ def test_local_sandbox_execute_command_in_root(tmp_path):
     assert "sandbox-ok" in out
 ```
 
-**整块解析**：`execute_command` 的 cwd=root 语义验证——命令在沙箱根内跑。`echo sandbox-ok` 的 stdout 被捕获返回，断言包含预期文本。这个用例测的是"命令执行的基本路径通畅"；命令逃逸 cwd（`cd /etc && ...`）属 M5 的 OS 级 jail 范围，M4 文档风险点已如实标注。
+**结构简析**：`execute_command` 的 cwd=root 语义验证——命令在沙箱根内跑。`echo sandbox-ok` 的 stdout 被捕获返回，断言包含预期文本。
+
+**`test_local_sandbox_execute_command_in_root()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tmp_path` | `Path`（pytest fixture） | 注入 | pytest 内置临时目录，作为沙箱根（命令 cwd=root） |
+
+**落库要点**：本用例测"命令执行基本路径通畅"；命令逃逸 cwd（`cd /etc && ...`）属 M5 的 OS 级 jail 范围，M4 文档风险点已如实标注。
 
 ### 块 6：test_noop_sandbox_denies_everything —— Noop fail-closed
 
@@ -176,7 +212,11 @@ def test_noop_sandbox_denies_everything():
         sb.read_file("x.txt")
 ```
 
-**整块解析**：Noop 沙箱 = 安全默认值。未注入 provider 时（`_provider is None`）默认用 Noop，任何操作（命令/写/读）都抛 `SandboxError`——**fail-closed**（默认全拒）而非 fail-open（默认放行）。三条断言分别覆盖三种操作入口。
+**结构简析**：Noop 沙箱 = 安全默认值证明。未注入 provider 时默认用 Noop，任何操作都抛 `SandboxError`——fail-closed（默认全拒）而非 fail-open（默认放行）。
+
+**`test_noop_sandbox_denies_everything()` 参数逐条解释**：无参数，直接断言 NoopSandbox 的三种操作入口都抛 SandboxError——`execute_command("ls")`、`write_file("x.txt","y")`、`read_file("x.txt")` 各用一个 `pytest.raises(SandboxError)`。
+
+**落库要点**：三条断言分别覆盖命令/写/读三种操作入口，钉死"默认全拒"不被改坏。
 
 ### 块 7：test_local_sandbox_list_dir_depth —— list_dir 深度语义（检查轮修正）
 
@@ -205,7 +245,15 @@ def test_local_sandbox_list_dir_depth(tmp_path):
     assert "a/b/c/three.txt" not in l3  # 第三层目录内的文件要 depth=4
 ```
 
-**整块解析**：检查轮发现原 `rglob("*")` 无限递归、`max_depth` 失效后，修复为 `os.walk` 按层遍历，本用例把 depth 语义钉死。先造 4 层文件树（top / a/one / a/b/two / a/b/c/three），再逐层断言：depth=1 只见直接子项（不见 `a/one.txt`）、depth=2 见第二层（不见 `a/b/two.txt`）、depth=3 见第三层（`a/b/c/three.txt` 要 depth=4 才见）。**正反双向断言**（在 + 不在）防止"多列了"与"少列了"两种回归。
+**结构简析**：list_dir 的 max_depth 语义回归防线（检查轮发现原 `rglob("*")` 无限递归、max_depth 失效，修复为 `os.walk` 按层遍历后，本用例把 depth 语义钉死）。先造 4 层文件树（top / a/one / a/b/two / a/b/c/three），再逐层正反双向断言。
+
+**`test_local_sandbox_list_dir_depth()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tmp_path` | `Path`（pytest fixture） | 注入 | pytest 内置临时目录，作为沙箱根与文件树落点 |
+
+**落库要点**：depth=1 只见直接子项（不见 `a/one.txt`）、depth=2 见第二层（不见 `a/b/two.txt`）、depth=3 见第三层（`a/b/c/three.txt` 要 depth=4 才见）。正反双向断言（`in` + `not any(...)`）防止"多列了"与"少列了"两种回归。
 
 ### 块 8：test_provider_injection_and_audit —— 注入 + 审计
 
@@ -241,23 +289,27 @@ def test_provider_injection_and_audit(tmp_path):
         reset_sandbox_provider()  # 恢复默认，避免影响其他测试
 ```
 
-**整块解析**：验收点 4 配套的端到端用例，四段式：
-1. **建审计库**：独立 `audit.db` + `init_db` 建表 + `SandboxAuditRepository(conn=conn)`（注意这里用 `conn=` 关键字，与其他 repo 的 `db_path=` 是两种构造入口）。
-2. **注入 provider**：`set_sandbox_provider(LocalSandboxProvider(tmp_path/"sandbox-root"))`，再经 `get_sandbox_provider().get(acquire())` 取到沙箱实例（`acquire` 返回 id → `get` 校验返回）。
-3. **模拟两种操作**：沙箱内写 `a.txt` → 记 `allowed=True` 的放行记录；写 `/etc/blocked.txt` 被拒 → 在 except 里记 `allowed=False` + `reason="越界"` 的拦截记录。
-4. **断言审计**：`len(rows)==2`（两条都落库）、`allowed == {0,1}`（放行和拦截**都在**——审计不是只记坏事）、拦截记录的目标是 `/etc/blocked.txt`。`finally: reset_sandbox_provider()` 保证不污染其他用例。
+**结构简析**：验收点 4 配套的端到端用例，四段式——建审计库 → 注入 provider → 模拟两种操作 → 断言审计。`finally: reset_sandbox_provider()` 保证不污染其他用例。
+
+**`test_provider_injection_and_audit()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tmp_path` | `Path`（pytest fixture） | 注入 | pytest 内置临时目录；既作 `audit.db` 落点（`tmp_path/"audit.db"`），又作沙箱根（`tmp_path/"sandbox-root"`） |
+
+**落库要点**：① 建审计库用 `SandboxAuditRepository(conn=conn)`（conn 版构造入口）；② `set_sandbox_provider(...)` 后经 `get(acquire())` 取沙箱实例；③ 沙箱内写 `a.txt` 记 `allowed=True`，写 `/etc/blocked.txt` 被拒在 except 里记 `allowed=False, reason="越界"`；④ 断言 `len(rows)==2`、`allowed == {0,1}`（放行和拦截都在——审计不是只记坏事）、拦截记录目标是 `/etc/blocked.txt`。
 
 ## ❓ Q&A / 知识点
 
-### 为什么越界测试敢用真实的 /etc 路径？（2026-10-01 用户提问）
+### 1. 为什么越界测试敢用真实的 /etc 路径？（2026-10-01 用户提问）
 
 **一句话**：`_resolve` 的拦截保证写入在抛异常前不会真正发生——`pytest.raises(SandboxPermissionError)` 捕获到异常即证明"被拦住了"，文件根本写不进去；如果拦截失效，测试会真的尝试写 /etc 然后因为权限失败（也是失败），所以用真实宿主路径是安全且更严格的。
 
-### 审计为什么同时记放行和拦截？
+### 2. 审计为什么同时记放行和拦截？
 
 **一句话**：验收点 4 要求"全程可追溯"——审计的价值在于还原"谁对什么做了什么、结果如何"，只记拦截会丢失正常操作的轨迹（比如排查子代理到底碰过哪些文件）。`allowed == {0, 1}` 断言就是钉死"两种记录都要有"。
 
-### list_dir 为什么正反双向断言？
+### 3. list_dir 为什么正反双向断言？
 
 **一句话**：`in` 断言防"少列了"（深度不够），`not any(...)` 断言防"多列了"（深度失控/无限递归）。检查轮正是靠"不该出现的却出现了"这类反向断言，才暴露了原 `rglob("*")` 无限递归的 bug。
 
@@ -268,3 +320,4 @@ def test_provider_injection_and_audit(tmp_path):
 3. `list_dir` 深度语义是检查轮修复的回归防线——`os.walk` 的 `dirs[:] = []` 截断逻辑被改坏时，depth=1 用例会先红。
 ---
 _2026-10-01 新建：tests 测试文档（用例级验收对照，对齐 doc-code 规范：目录/结构图/流程图/成块代码解析/Q&A/风险点）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

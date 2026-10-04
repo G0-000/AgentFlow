@@ -131,11 +131,11 @@ from agentflow.sandbox.sandbox import Sandbox
 from agentflow.sandbox.sandbox_provider import SandboxProvider
 ```
 
-**整块解析**：标准库五件——`os`（list_dir 的 os.walk 按层遍历）、`shlex`（引用命令文本，错误消息里安全打印）、
-`subprocess`（执行命令）、`tempfile`（Provider 默认 root）、`pathlib.Path`
-（路径规范化的核心工具）。异常侧把 exceptions.py 的 4 个子类**全部 import**——
-LocalSandbox 是全项目唯一"按错误语义细分抛错"的实现：越界抛 Permission、
-缺文件抛 NotFound、OSError 包装成 File、超时/非零码抛 Command。
+**结构简析**：标准库五件——`os`（list_dir 的 os.walk 按层遍历）、`shlex`（引用命令文本，错误消息里安全打印）、`subprocess`（执行命令）、`tempfile`（Provider 默认 root）、`pathlib.Path`（路径规范化核心工具）。异常侧把 exceptions.py 的 4 个子类全部 import，并继承 `Sandbox` / `SandboxProvider` 两个基类。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：LocalSandbox 是全项目唯一"按错误语义细分抛错"的实现——越界抛 Permission、缺文件抛 NotFound、OSError 包装成 File、超时/非零码抛 Command。
 
 ### 块 2：`LocalSandbox.__init__` —— root 规范化 + 建目录 + id 命名
 
@@ -154,11 +154,15 @@ class LocalSandbox(Sandbox):
         self._root = root_path
 ```
 
-**整块解析**：构造时就把 root 钉死——① `Path(root).resolve()`：root 自身先规范化，
-后续所有前缀校验都拿这个**已 resolve 的绝对路径**做基准；② `mkdir(parents=True,
-exist_ok=True)`：目录不存在就建（CLI 的 `.sandbox`、测试的 tmp 目录都自动就绪）；
-③ id 取 `local-{root名}`（根目录无名时兜底 'root'），如 `.sandbox` 目录即 id=`local-.sandbox`。
-docstring 自曝短板：不做 OS 级 jail。
+**结构简析**：`LocalSandbox(Sandbox)` 子类。构造时就把 root 钉死——root 自身先 resolve 规范化、自动建目录、生成 id。docstring 自曝短板：不做 OS 级进程 jail。
+
+**`__init__()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `root` | `str \| Path` | 必填 | 沙箱根目录；构造时 `Path(root).resolve()` 规范化成绝对路径（后续所有前缀校验都拿它做基准），再 `mkdir(parents=True, exist_ok=True)` 自动建（CLI 的 `.sandbox`、测试 tmp 目录都自动就绪） |
+
+**落库要点**：id 取 `local-{root名}`（根目录无名时兜底 `'root'`），如 `.sandbox` 目录即 id=`local-.sandbox`；`self._root` 存已 resolve 的绝对路径。
 
 ### 块 3：`_resolve` —— 核心安全闸（越界拦截全靠它）
 
@@ -181,17 +185,17 @@ docstring 自曝短板：不做 OS 级 jail。
         return p
 ```
 
-**整块解析**：四步走，每步对应一类逃逸手法：
+**结构简析**：核心安全闸，四步走，每步对应一类逃逸手法——① `expanduser()` 展开 `~`；② 相对路径拼 root；③ `p.resolve()` 规范化（`..` 向上逃逸、软链指向沙箱外都在这步归一）；④ 前缀校验，不在 root 内抛 Permission。
 
-| 步骤 | 代码 | 拦掉什么 |
-|---|---|---|
-| 展开用户目录 | `expanduser()` | `~/xxx` 这类主目录引用 |
-| 相对路径拼接 root | `if not p.is_absolute(): p = self._root / p` | 工具传相对路径时**以 root 为基准**，而非调用时的 cwd |
-| 规范化为真实绝对路径 | `p = p.resolve()` | `..` 向上逃逸、软链指向沙箱外 |
-| 前缀校验 | `p != root and root not in p.parents` | 规范化后不在 root 内（含等于 root 本身放行）→ 抛 Permission |
+**`_resolve()` 参数逐条解释**：
 
-关键在最后一行的两个条件缺一不可：`p == self._root`（访问根目录本身）放行，
-其余必须 `root in p.parents`。抛错时 details 带上 root，便于审计定位。
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str \| Path` | 必填 | 调用方给的路径，可能是相对/`../`/`~/`/软链/绝对宿主路径；相对路径以沙箱 root 为基准拼（而非调用时进程 cwd） |
+
+校验规则：`p != self._root and self._root not in p.parents` 为真即越界——`p == self._root`（访问根目录本身）放行，其余必须 `root in p.parents`。
+
+**落库要点**：越界抛 `SandboxPermissionError`，details 带 `root={self._root}` 便于审计定位。必须用 `resolve()` 而非 `normpath()`——后者不解析软链，会被软链逃逸骗过。
 
 ### 块 4：`execute_command` —— cwd 限制 + 超时，无 OS jail
 
@@ -222,12 +226,16 @@ docstring 自曝短板：不做 OS 级 jail。
         return out.strip() or "(无输出)"
 ```
 
-**整块解析**：`shell=True` 故意接受完整 shell 串（noqa S602 标注"沙箱设计如此"），
-限制手段只有 `cwd=self._root`（起始目录）和 `timeout`（默认 30s）两级。错误分两路：
-超时 → `SandboxCommandError`（`from None` 不串栈）；非零退出码 → 同样抛 Command，
-details 带输出前 500 字符。输出合并 stdout+stderr、strip，空输出返回 `"(无输出)"`。
-**如实标注风险**：命令内部 `cd /etc && cat /etc/hosts` 可逃逸 cwd 限制——
-这不是文件路径沙箱能拦的，完整 OS 级 jail 留 M5。
+**结构简析**：`shell=True` 故意接受完整 shell 串（标注"沙箱设计如此"），限制手段只有 `cwd=self._root`（起始目录）和 `timeout` 两级。错误分两路：超时 → `SandboxCommandError`（`from None` 不串栈）；非零退出码 → 同样抛 Command，details 带输出前 500 字符。
+
+**`execute_command()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `command` | `str` | 必填 | shell 字符串命令，在沙箱 root 目录内 `subprocess.run(..., shell=True, cwd=self._root)` 执行 |
+| `timeout` | `int` | `30` | 超时秒数；超时抛 `SandboxCommandError("命令超时（>{timeout}s）…")` |
+
+**落库要点**：输出合并 `stdout+stderr`、strip，空输出返回 `"(无输出)"`；非零码 `check=False` 不自动抛，走 returncode 分支转 Command。**如实标注风险**：命令内部 `cd /etc && cat /etc/hosts` 可逃逸 cwd 限制——这不是文件路径沙箱能拦的，完整 OS 级 jail 留 M5。
 
 ### 块 5：`read_file` / `list_dir` —— 读向操作
 
@@ -263,12 +271,22 @@ details 带输出前 500 字符。输出合并 stdout+stderr、strip，空输出
         return out[:500]  # 上限 500 条防爆炸
 ```
 
-**整块解析**：每个方法第一行都是 `p = self._resolve(path)`——文件类操作没有例外，
-先过安全闸再谈业务。read_file 固定 utf-8 读文本；list_dir 用 `os.walk` 按层遍历：
-`level = len(Path(root).relative_to(p).parts)` 算出当前相对层级，`level >= depth`
-时 `dirs[:] = []` 停止下钻，保证最多列 max_depth 层（depth=1 只列直接子项）。
-结果排序后 `[:500]` 截断防目录爆炸。OSError 一律 `from exc` 包装成
-SandboxFileError（保留原始异常链）。
+**结构简析**：两个读向方法，每个第一行都是 `p = self._resolve(path)`——文件类操作没有例外，先过安全闸再谈业务。read_file 固定 utf-8 读文本；list_dir 用 `os.walk` 按层遍历，到深度上限 `dirs[:] = []` 停止下钻，结果排序后 `[:500]` 截断防目录爆炸。OSError 一律 `from exc` 包装成 SandboxFileError（保留原始异常链）。
+
+**`read_file()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 要读的文件路径，先过 `_resolve`；不是文件（`is_file()` 假）抛 `SandboxFileNotFoundError`；utf-8 读文本返回 |
+
+**`list_dir()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 要列的目录路径，先过 `_resolve`；不是目录抛 `SandboxFileNotFoundError` |
+| `max_depth` | `int` | `2` | 最多下钻层数；`depth = max(1, int(max_depth))` 保底 1，level≥depth 即 `dirs[:]=[]` 停钻；depth=1 只列直接子项 |
+
+**落库要点**：list_dir 返回相对路径字符串列表，`[:500]` 硬截断防目录爆炸（超 500 条只看到前 500，非错误）。
 
 ### 块 6：`write_file` / `update_file` / `delete_file` —— 写向操作
 
@@ -302,13 +320,30 @@ SandboxFileError（保留原始异常链）。
             raise SandboxFileError(f"删除失败: {path}（{exc}）") from exc
 ```
 
-**整块解析**：三个写方法结构同构——先 `_resolve`，再 try 真实 IO，OSError 包装。
-差异在语义：write_file 是文本（utf-8，append 决定 "a"/覆盖），**检查轮修正**——
-写入前 `p.parent.mkdir(parents=True, exist_ok=True)` 自动建父目录（模型写
-`a/b.txt` 不必先建目录，更符合工具调用习惯）；update_file 是
-`write_bytes` 二进制整体替换（不做编码），delete_file 先 `exists()` 再 `unlink()`。
-越界在三个方法里被同一道闸统一拦截：测试 test_sandbox_guard.py:33 写
-`/etc/agentflow_should_not_write.txt` 被拒、:43 写 `../escape.txt` 被拒。
+**结构简析**：三个写向方法结构同构——先 `_resolve`，再 try 真实 IO，OSError 包装成 SandboxFileError。差异在语义：write_file 文本（utf-8，append 决定追加/覆盖，写前自动建父目录）；update_file 二进制整体替换（`write_bytes`，不做编码）；delete_file 先 `exists()` 再 `unlink()`。
+
+**`write_file()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 要写的文件路径，先过 `_resolve`；写前 `p.parent.mkdir(parents=True, exist_ok=True)` 自动建父目录（模型写 `a/b.txt` 不必先建目录） |
+| `content` | `str` | 必填 | 文本内容，utf-8 写 |
+| `append` | `bool` | `False` | True 时 `open("a")` 追加；False 时 `write_text` 覆盖 |
+
+**`update_file()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 要更新的文件路径，先过 `_resolve` |
+| `content` | `bytes` | 必填 | 二进制内容，`write_bytes` 整体替换（不做编码） |
+
+**`delete_file()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 要删的文件路径，先过 `_resolve`；`exists()` 为假抛 `SandboxFileNotFoundError`，否则 `unlink()` |
+
+**落库要点**：越界在三个方法里被同一道 `_resolve` 闸统一拦截——测试 test_sandbox_guard.py:33 写 `/etc/agentflow_should_not_write.txt` 被拒、:43 写 `../escape.txt` 被拒。
 
 ### 块 7：`LocalSandboxProvider` —— 固定单例，root 默认临时目录
 
@@ -335,14 +370,37 @@ class LocalSandboxProvider(SandboxProvider):
         pass  # 单例沙箱无状态，无需归还
 ```
 
-**整块解析**：`root=None` 时自动建 `agentflow-sandbox-` 前缀的临时目录——
-"裸用"这个 Provider 也能跑（测试友好）；CLI 则显式传项目 `.sandbox`。
-三个接口方法与 NoopSandboxProvider 同构（固定单例、id 匹配查表、release 空操作），
-区别只在背后那个 LocalSandbox 真的读写磁盘。
+**结构简析**：`LocalSandboxProvider(SandboxProvider)`——固定返回单个 LocalSandbox 的单例 Provider。`root=None` 时自动建 `agentflow-sandbox-` 前缀临时目录（裸用也能跑，测试友好）；CLI 则显式传项目 `.sandbox`。三个接口方法与 NoopSandboxProvider 同构（固定单例、id 匹配查表、release 空操作），区别只在背后那个 LocalSandbox 真的读写磁盘。
+
+**`__init__()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `root` | `str \| Path \| None` | `None` | 沙箱根；None 时 `tempfile.mkdtemp(prefix="agentflow-sandbox-")` 自动建临时目录；构造即 `LocalSandbox(root)` |
+
+**`acquire()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str \| None` | `None` | 线程标识（基类契约参数，本实现单例不用它）；直接返回 `self._sandbox.id` |
+
+**`get()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `sandbox_id` | `str` | 必填 | 要取的沙箱 id；等于 `self._sandbox.id` 返回该单例，否则 `None` |
+
+**`release()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `sandbox_id` | `str` | 必填 | 要归还的沙箱 id；本实现空操作 `pass`——单例沙箱无状态，无需归还 |
+
+**落库要点**：默认 root 是临时目录，裸用（未显式传 root）时文件落系统临时区、重启即失；CLI 生产装配务必显式传项目 `.sandbox`。
 
 ## ❓ Q&A / 知识点
 
-### 沙箱越界怎么拦的？（2026-10-01 用户提问）
+### 1. 沙箱越界怎么拦的？（2026-10-01 用户提问）
 
 **一句话**：全靠 `_resolve` 一道闸——相对路径以 root 为基准拼好，再 `resolve()`
 规范化成真实绝对路径，最后做前缀校验：不在 root 内就抛 `SandboxPermissionError`。
@@ -371,13 +429,13 @@ class LocalSandboxProvider(SandboxProvider):
 **注意边界**：这是**文件路径级**隔离；`execute_command` 里 shell 命令内部的
 `cd /etc && …` 不经过 `_resolve`，不在本闸防护范围（见风险点 2）。
 
-### 为什么用 `resolve()` 而不是 `normpath()` 做规范化？
+### 2. 为什么用 `resolve()` 而不是 `normpath()` 做规范化？
 
 **一句话**：`normpath` 只做字符串归一（处理 `..`），不解析软链——沙箱里放一个
 指向 `/etc` 的符号链接，normpath 会被骗过；`resolve()` 实时把路径解析成真实位置，
 软链逃逸同样落网。源码头部风险点 1 即此告诫。
 
-### execute_command 只设了 cwd=root，为什么还算"沙箱"？
+### 3. execute_command 只设了 cwd=root，为什么还算"沙箱"？
 
 **一句话**：如实说——M4 它只做到"文件路径级隔离"，命令执行只有 cwd + 超时两级
 限制，**没有 OS 级进程 jail**。`cd /etc && cat /etc/hosts` 这类命令能逃出 cwd 限制，
@@ -396,3 +454,4 @@ class LocalSandboxProvider(SandboxProvider):
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

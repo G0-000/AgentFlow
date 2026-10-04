@@ -96,7 +96,9 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 | `builtins/file_tools.py` | 沙箱文件工具（read_file/write_file） | **M4 新增**：文件读写统一走沙箱接口，越界由 _resolve 拦截 + 审计 | 路径必须经沙箱（不能直接 open 宿主路径） | — |
 | `builtins/dispatch_tool.py` | 子代理派发工具（dispatch_subagents） | **M4 新增**：任务列表 → 并行派发 ≤3 → 按序回传；configure_dispatch_service 注入 | max_parallel 硬上限 3；未配置给友好提示 | — |
 
-### cli/ —— 命令行入口（2 文件）
+### cli/ —— 命令行入口（6 文档：main 总览 + 4 功能子文档 + __init__）
+
+> main.py 已按功能拆分：装配（assembly.md）/ 定时子命令（automation.md）/ 长任务（goal.md）/ 对话循环（repl.md）。
 
 | 文件 | 职责 | 为什么这样设计 | 设计需求 | 涉及问题 |
 |---|---|---|---|---|
@@ -127,8 +129,9 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 - [tool_catalog.py](tools/tool_catalog.md) · [tools.py](tools/tools.md) · [tool_result_store.py](tools/tool_result_store.md) · [__init__.py](tools/__init__.md)
 - builtins/: [clarification_tool.py](tools/builtins/clarification_tool.md) · [todo_tool.py](tools/builtins/todo_tool.md) · [knowledge_tool.py](tools/builtins/knowledge_tool.md) · [plan_tool.py](tools/builtins/plan_tool.md) · [fetch_url_tool.py](tools/builtins/fetch_url_tool.md) · [__init__.py](tools/builtins/__init__.md)
 
-### cli/（2）
-- [main.py](cli/main.md) · [__init__.py](cli/__init__.md)
+### cli/（6）
+- [main.py](cli/main.md)（总览：入口/结构图/知识点/Q&A） · [__init__.py](cli/__init__.md)
+- 功能子文档： [assembly.md](cli/assembly.md)（装配） · [automation.md](cli/automation.md)（定时子命令） · [goal.md](cli/goal.md)（长任务） · [repl.md](cli/repl.md)（对话循环）
 
 ### knowledge/（6）
 - [chunker.py](knowledge/chunker.md) · [service.py](knowledge/service.md) · [__init__.py](knowledge/__init__.md)

@@ -140,7 +140,15 @@ def configure_knowledge_service(service: Any) -> None:
     _knowledge_service = service
 ```
 
-**整块解析**：`@tool` 装饰的函数是**模块级对象**，框架调用时不带实例参数——无法像普通类那样构造时传入 KnowledgeService。解法是模块级全局句柄 `_knowledge_service`（初始 None）+ 显式 `configure_knowledge_service(service)`，由 CLI 启动装配时调用注入。`global` 声明保证函数内能改写模块变量。未配置时保持 None，工具走"未接入"分支不崩。
+**结构简析**：`@tool` 装饰的函数是**模块级对象**，框架调用时不带实例参数——无法像普通类那样构造时传入 KnowledgeService。解法是模块级全局句柄 `_knowledge_service`（初始 None）+ 显式 `configure_knowledge_service(service)`，由 CLI 启动装配时调用注入。`global` 声明保证函数内能改写模块变量。
+
+**`configure_knowledge_service()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `service` | `Any` | 必填 | KnowledgeService 实例；`global _knowledge_service` 把它挂到模块级句柄上，供工具运行时读取 |
+
+**补充**：未配置时句柄保持 None，工具走"未接入"分支返回明确提示，测试/无库场景不崩。
 
 ### 块 2：`_format_hit` —— 统一命中格式化
 
@@ -157,7 +165,16 @@ def _format_hit(h: dict[str, Any], index: int) -> str:
     return "\n".join(parts)
 ```
 
-**整块解析**：所有检索来源（向量库/全文）的命中都走这一个格式化函数，避免各写各的。三处字段兜底：① 标题按 `title → fileName → docId → 文档{N}` 顺序取；② 分数兼容 `rrfScore`（RRF 融合分）和普通 `score`，有值才格式化为三位小数，否则显示"—"；③ 摘要截前 400 字。输出三行：`[序号] 标题` / `   分数: x.xxx` / （有摘要时）`   摘要`。
+**结构简析**：所有检索来源（向量库/全文）的命中都走这一个格式化函数，避免各写各的。三处字段兜底：① 标题按 `title → fileName → docId → 文档{N}` 顺序取；② 分数兼容 `rrfScore`（RRF 融合分）和普通 `score`，有值才格式化为三位小数，否则显示"—"；③ 摘要截前 400 字。
+
+**`_format_hit()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `h` | `dict[str, Any]` | 必填 | 单条命中 dict；依次取 `title`/`fileName`/`docId`/`rrfScore`/`score`/`content`，缺失字段逐级兜底 |
+| `index` | `int` | 必填 | 命中序号（从 0 起）；输出里显示为 `[index+1]`，标题全缺时回退成 `文档{index+1}` |
+
+**补充**：输出三行——`[序号] 标题` / `   分数: x.xxx` / （有摘要时）`   摘要`（content 截前 400 字后 strip）。
 
 ### 块 3：`_KNOWLEDGE_DESCRIPTION` —— 给模型看的说明书
 
@@ -172,7 +189,11 @@ action=list: 列出知识库文档（传 kb_name 可选）。
 """
 ```
 
-**整块解析**：说明书约定三动作各自要带的参数——search 传 query、read 传 doc_id、list 列文档（kb_name 可选）。最后一句"未建/未配置时返回明确提示"告诉模型：调用后可能拿到的是提示而非结果，要会处理。
+**结构简析**：说明书约定三动作各自要带的参数——search 传 query、read 传 doc_id、list 列文档（kb_name 可选）。最后一句"未建/未配置时返回明确提示"告诉模型：调用后可能拿到的是提示而非结果，要会处理。
+
+本块是模块级常量字符串，无函数签名，不展开参数表。
+
+**补充**：这个字符串作为 `@tool` 的 `description=` 传给框架，是模型做工具选择和参数填充的依据；改文案会直接影响模型何时调、怎么调本工具。
 
 ### 块 4：`@tool` 装饰器 + 函数签名 + 未接入分支
 
@@ -194,7 +215,18 @@ def knowledge_tool(
         return "（知识库未接入。请先在 CLI 装配 KnowledgeService 并建库后使用）"
 ```
 
-**整块解析**：注意 `return_direct=False`（与 todo/fetch_url 不同）——RAG 场景下检索结果**必须回填模型**，由模型阅读后"引用结果组织回答"，而不是把原文直塞给用户。签名四个参数：`action` 默认 search，`query/doc_id/kb_name` 可选。函数体第一步先取 `svc = _knowledge_service`，None 时直接返回未接入提示（防模型误以为检索成功而编造内容，设计思想 3）。
+**结构简析**：注意 `return_direct=False`（与 todo/fetch_url 不同）——RAG 场景下检索结果**必须回填模型**，由模型阅读后"引用结果组织回答"，而不是把原文直塞给用户。函数体第一步先取 `svc = _knowledge_service`，None 时直接返回未接入提示（防模型误以为检索成功而编造内容，设计思想 3）。
+
+**`knowledge_tool()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `action` | `str` | `"search"` | 动作：`search`=关键词/自然语言检索（默认）；`read`=按 doc_id 读文档；`list`=列出知识库文档 |
+| `query` | `str \| None` | `None` | 仅 search 用；`(query or "").strip()` 去空白后为空则返回"search 需要 query 参数" |
+| `doc_id` | `str \| None` | `None` | 仅 read 用；`int(doc_id or 0)` 转整型，转不动（TypeError/ValueError）返回"doc_id 无效" |
+| `kb_name` | `str \| None` | `None` | 预留：指定知识库名；当前实现 list 分支调 `list_docs()` 无参，未实际使用 |
+
+**补充**：装饰器 `@tool("knowledge", description=_KNOWLEDGE_DESCRIPTION, parse_docstring=False, return_direct=False)`——注册名 `"knowledge"`，`parse_docstring=False` 表示不从 docstring 自动推参数说明（用 description 手动写），`return_direct=False` 表示结果回填模型走标准 RAG。
 
 ### 块 5：list / read / search 三分支实现
 
@@ -227,11 +259,15 @@ def knowledge_tool(
     )
 ```
 
-**整块解析**：三分支都"先校验后调用、空结果给明确提示"——① `list`：空库返回建库指引，否则每条拼 `- [id] title（N 块）`；② `read`：`int(doc_id or 0)` 转换，专门 catch `TypeError/ValueError`（doc_id 非数字），取不到文档报"文档不存在"；③ `search`（默认）：query 去空白后空则报错，`svc.search(q, top_k=3)` 固定取前 3 条，空结果报"检索无结果"，否则把每条命中重组成 `{title, score, content}` 喂给 `_format_hit` 格式化后用空行拼接。
+**结构简析**：三分支都"先校验后调用、空结果给明确提示"——① `list`：空库返回建库指引，否则每条拼 `- [id] title（N 块）`；② `read`：`int(doc_id or 0)` 转换，专门 catch `TypeError/ValueError`（doc_id 非数字），取不到文档报"文档不存在"；③ `search`（默认）：query 去空白后空则报错，`svc.search(q, top_k=3)` 固定取前 3 条，空结果报"检索无结果"，否则把每条命中重组成 `{title, score, content}` 喂给 `_format_hit` 格式化后用空行拼接。
+
+本块是块 4 已签名函数的函数体分支，参数同 `knowledge_tool()`（见块 4），不重复造表。
+
+**补充**：search 固定 `top_k=3`；每条命中只挑 `title`/`score`/`content` 三个字段重组成新 dict 再喂 `_format_hit`，不把 service 返回的原始结构直接透出。
 
 ## ❓ Q&A / 知识点
 
-### 为什么用模块级全局 `_knowledge_service` + configure 函数，而不是构造函数注入？
+### 1. 为什么用模块级全局 `_knowledge_service` + configure 函数，而不是构造函数注入？
 
 **一句话**：LangChain 的 `@tool` 工具是**模块级函数对象**，框架调用时只传参数、不传实例，构造注入走不通。
 
@@ -242,7 +278,7 @@ def knowledge_tool(
 
 代价是引入了全局可变状态，但换来了"工具签名零改动"——M5 接真向量库时只换 `configure` 传进去的实例，函数签名和模型看到的 schema 都不动。
 
-### 为什么 knowledge 是 `return_direct=False`，而 todo/fetch_url 是 True？
+### 2. 为什么 knowledge 是 `return_direct=False`，而 todo/fetch_url 是 True？
 
 **一句话**：RAG 检索结果需要模型"读完再组织语言"，而不是把原文直接甩给用户。
 
@@ -262,3 +298,4 @@ def knowledge_tool(
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：knowledge_tool.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

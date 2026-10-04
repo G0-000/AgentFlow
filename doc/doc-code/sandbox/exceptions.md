@@ -113,12 +113,16 @@ class SandboxError(Exception):
         self.details = details
 ```
 
-**整块解析**：三个要点——① 基类直接继承标准库 `Exception`（不是 BaseException），
-这样 `except Exception` 的常规路径天然兜得住它；② `__init__(message, details=None)`
-把 `message` 原样传给 `super().__init__`（保证 str(exc) 友好），另存一个可选的
-`details` 字段携带现场（命令片段/路径/root）；③ `from __future__ import annotations`
-让 `str | None` 注解在旧解释器下也只做字符串不求值。工具层只需记住一件事：
-`except SandboxError` 就能接住沙箱抛出的一切。
+**结构简析**：`SandboxError(Exception)` 基类，工具层统一 catch 的收口点。基类直接继承标准库 `Exception`（不是 BaseException），`except Exception` 的常规路径天然兜得住。
+
+**`__init__()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `message` | `str` | 必填 | 异常主文案，原样传给 `super().__init__(message)`，保证 `str(exc)` 友好、给模型/用户看 |
+| `details` | `str \| None` | `None` | 可选现场上下文（命令片段/路径/root），存 `self.details`，给审计/排错看，不塞敏感信息 |
+
+**落库要点**：`from __future__ import annotations` 让 `str | None` 注解在旧解释器下也只做字符串不求值。工具层只需记住一件事：`except SandboxError` 就能接住沙箱抛出的一切。
 
 ### 块 2：4 个子类 —— 两类失败语义的细分
 
@@ -139,22 +143,22 @@ class SandboxCommandError(SandboxError):
     """沙箱内命令执行失败（非零退出码/超时）。"""
 ```
 
-**整块解析**：4 个子类全部为空壳（只有 docstring，无方法）——它们是**标签类**，
-靠类型区分语义：
+**结构简析**：4 个子类全部为空壳（只有 docstring，无方法）——它们是标签类，靠类型区分失败语义，构造签名继承自基类 `(message, details=None)`。
+
+本块各类均无自定义参数（空壳标签类，复用基类 `__init__`）。各类语义与典型抛出方：
 
 | 异常 | 语义 | 典型抛出方（源码事实） |
 |---|---|---|
-| `SandboxPermissionError` | 安全拦截：路径越界 | local.py:87 `_resolve` 前缀校验失败 |
-| `SandboxFileError` | 文件 IO 真失败 | local.py:125/159/166/175 `except OSError` 包装 |
-| `SandboxFileNotFoundError` | 文件/目录不存在 | local.py:121/137/171；**继承自 SandboxFileError** |
-| `SandboxCommandError` | 命令超时 / 非零退出码 | local.py:106/111 `execute_command` |
+| `SandboxPermissionError` | 安全拦截：路径越界 | local.py `_resolve` 前缀校验失败 |
+| `SandboxFileError` | 文件 IO 真失败 | local.py `except OSError` 包装（读/写/删） |
+| `SandboxFileNotFoundError` | 文件/目录不存在 | local.py 读/列/删前存在性检查；**继承自 SandboxFileError** |
+| `SandboxCommandError` | 命令超时 / 非零退出码 | local.py `execute_command` |
 
-注意 `SandboxFileNotFoundError` 的父类是 `SandboxFileError` 而非直接继承
-`SandboxError`——既支持精确断言"文件不存在"，又能被 `except SandboxFileError` 一网打尽。
+**落库要点**：`SandboxFileNotFoundError` 的父类是 `SandboxFileError` 而非直接继承 `SandboxError`——既支持精确断言"文件不存在"，又能被 `except SandboxFileError` 一网打尽（两级粒度通吃）。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 SandboxFileNotFoundError 继承 SandboxFileError 而不是直接继承 SandboxError？
+### 1. 为什么 SandboxFileNotFoundError 继承 SandboxFileError 而不是直接继承 SandboxError？
 
 **一句话**：让"文件不存在"既能被精确断言，又能被"所有文件错误"一网打尽——两级粒度通吃。
 
@@ -165,7 +169,7 @@ class SandboxCommandError(SandboxError):
 - 对照：`SandboxCommandError` 没有再细分（超时与非零码共用一类，靠 message 文本区分），
   M4 裁剪后只保留必要的层级。
 
-### details 字段为什么可选、放什么？
+### 2. details 字段为什么可选、放什么？
 
 **一句话**：message 是给模型/用户看的干净文案，details 是给审计/排错看的现场，
 两者分离，details 不塞敏感信息。
@@ -184,3 +188,4 @@ class SandboxCommandError(SandboxError):
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

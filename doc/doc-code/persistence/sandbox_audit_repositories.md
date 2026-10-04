@@ -128,7 +128,9 @@ class SandboxAuditRepository(BaseRepository):
         return "sandbox_audit"
 ```
 
-**整块解析**：只引 `BaseRepository`（persistence/repositories.py:49）——继承它拿统一连接管理（`conn` 属性：db_path 模式走线程本地连接，conn 模式直接用注入连接）与三个执行器（`_execute` 写+commit、`_fetch_one`/`_fetch_all` 读不 commit）。`table_name` 属性是基类 ABC 强制要求的抽象属性，返回 `"sandbox_audit"`（该表由 schema.py:88 `CREATE TABLE IF NOT EXISTS sandbox_audit` 建）。
+**结构简析**：只引 `BaseRepository`——继承它拿统一连接管理（`conn` 属性：db_path 模式走线程本地连接，conn 模式直接用注入连接）与三个执行器（`_execute` 写+commit、`_fetch_one`/`_fetch_all` 读不 commit）。
+
+**`table_name` property 参数逐条解释**：无参数，直接返回 `"sandbox_audit"`（基类 ABC 强制要求的抽象属性；该表由 schema.py `CREATE TABLE IF NOT EXISTS sandbox_audit` 建）。
 
 ### 块 2：`record` —— 写一条审计（放行/拦截都记）
 
@@ -159,12 +161,20 @@ class SandboxAuditRepository(BaseRepository):
         )
 ```
 
-**整块解析**：审计主写入方法。要点：
-- `action/target/allowed/reason/thread_id/subagent_name` 六个业务字段全参数化 `?` 占位防注入；
-- **`target[:500]`** 截断（命令/路径可能很长，防脏数据撑大表）；**`reason[:300]`** 同样截断；
-- **`1 if allowed else 0`**：把 Python bool 归一化为 SQLite INTEGER（见 Q&A）；
-- `created_at` 由 `_now_iso()` 现场生成；
-- 走 `self._execute`——基类自动 commit。
+**结构简析**：审计主写入方法——六个业务字段全参数化 `?` 占位防注入；走 `self._execute`（基类自动 commit）。
+
+**`record()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `action` | `str` | 必填 | 操作类型：terminal_run / read_file / write_file / ... |
+| `target` | `str` | 必填 | 目标（命令或路径）；落库前 `target[:500]` 截断防脏数据撑大表 |
+| `allowed` | `bool` | 必填 | 放行/拦截；落库时 `1 if allowed else 0` 归一化为 SQLite INTEGER（SQLite 无原生 BOOLEAN） |
+| `reason` | `str` | `""` | 拦截原因/备注；落库前 `reason[:300]` 截断 |
+| `thread_id` | `str` | `""` | 来源会话（thread_id）；默认空串 |
+| `subagent_name` | `str` | `""` | 操作方（子代理名/工具名）；默认空串 |
+
+**落库要点/补充**：`created_at` 由 `_now_iso()` 现场生成（UTC、秒精度）。
 
 ### 块 3：`query` / `count` —— 读侧
 
@@ -186,9 +196,16 @@ class SandboxAuditRepository(BaseRepository):
         return int(row["n"]) if row else 0
 ```
 
-**整块解析**：
-- `query`：SQL 动态拼接——传了 `thread_id` 才加 `WHERE thread_id = ?`（空串/None 不过滤）；统一 `ORDER BY id DESC LIMIT ?`（id 自增 ≈ 时间序，倒序拿最新），`limit=100` 防全表拉取。结果 `[dict(r) for r in rows]` 把 `sqlite3.Row` 转普通 dict 方便消费。
-- `count`：`SELECT COUNT(*) AS n`，空结果兜底 `0`。CLI 启动信息（`cli/main.py:228`）与测试断言用它。
+**结构简析**：`query` 的 SQL 动态拼接——传了 `thread_id` 才加 `WHERE thread_id = ?`（空串/None 不过滤）；统一 `ORDER BY id DESC LIMIT ?`（id 自增 ≈ 时间序，倒序拿最新），`limit=100` 防全表拉取；结果 `[dict(r) for r in rows]` 把 `sqlite3.Row` 转普通 dict 方便消费。`count` 用 `SELECT COUNT(*) AS n`，空结果兜底 `0`。
+
+**`query()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id` | `str \| None` | `None` | 按会话过滤；None/空串则不加 WHERE（全表倒序） |
+| `limit` | `int` | `100` | 最多返回条数，防全表拉取；要更多需显式传大值 |
+
+**`count()` 参数逐条解释**：无参数，直接 `SELECT COUNT(*) AS n` 取审计总条数（CLI 启动信息 / 测试断言用）。
 
 ### 块 4：BaseRepository 抽象契约实现 —— `create` / `get` / `delete`
 
@@ -216,11 +233,27 @@ class SandboxAuditRepository(BaseRepository):
         self._execute(f"DELETE FROM {self.table_name} WHERE id = ?", (row_id,))
 ```
 
-**整块解析**：基类 `BaseRepository` 是 ABC，强制子类实现 `create/get/delete` 三个抽象方法（外加 `table_name`）。这里：
-- `create(**kwargs)` **不是真在写 SQL**，而是把 kwargs 拆包转调 `record(...)`（`allowed=bool(...)` 默认 `True`）——为满足抽象契约的"字典化包装"；
-- `get(row_id)` 按自增主键 `id` 取一条；
-- `delete(row_id)` 按主键删（清理用，走 `_execute` 自动 commit）。
-业务主入口其实是 `record`，`create` 只是契约适配层。
+**结构简析**：基类 `BaseRepository` 是 ABC，强制子类实现 `create/get/delete` 三个抽象方法（外加 `table_name`）。`create(**kwargs)` **不是真在写 SQL**，而是把 kwargs 拆包转调 `record(...)`（`allowed=bool(...)` 默认 `True`）——为满足抽象契约的「字典化包装」；`get(row_id)` 按自增主键 `id` 取一条；`delete(row_id)` 按主键删（清理用，走 `_execute` 自动 commit）。
+
+**`create(**kwargs)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `**kwargs` | `dict` | `{}` | 接受 `action/target/allowed/reason/thread_id/subagent_name`；逐项 `str()`/`bool()` 转后透传给 `record`（`allowed` 缺省 `True`） |
+
+**`get(row_id)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `row_id` | `str` | 必填 | 自增主键 `id`；`SELECT * WHERE id = ?`，返回行对象或 None |
+
+**`delete(row_id)` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `row_id` | `str` | 必填 | 按主键删除审计记录（清理用） |
+
+**落库要点/补充**：业务主入口其实是 `record`，`create` 只是契约适配层——真实业务请直接调 `record`。
 
 ### 块 5：`_now_iso` —— UTC 时间戳（函数内懒 import）
 
@@ -232,11 +265,15 @@ def _now_iso() -> str:
     return datetime.now(UTC).isoformat(timespec="seconds")
 ```
 
-**整块解析**：模块级私有时间戳函数。`from datetime import ...` **写在函数体内**（懒 import），返回 `datetime.now(UTC).isoformat(timespec="seconds")`——UTC、秒精度、ISO 格式，对齐 timestamps 模块惯例。与 `record` 的 `created_at`、session_repositories 的时间写法保持一致。
+**结构简析**：模块级私有时间戳函数。`from datetime import ...` **写在函数体内**（懒 import），返回 `datetime.now(UTC).isoformat(timespec="seconds")`——UTC、秒精度、ISO 格式，对齐 timestamps 模块惯例。
+
+**`_now_iso()` 参数逐条解释**：无参数，直接返回当前 UTC 时间（ISO 秒精度）。
+
+**补充**：与 `record` 的 `created_at`、session_repositories 的时间写法保持一致。
 
 ## ❓ Q&A / 知识点
 
-### 审计 allowed 为什么用 0/1 整数？（2026-10-01 用户提问）
+### 1. 审计 allowed 为什么用 0/1 整数？（2026-10-01 用户提问）
 
 **一句话**：SQLite **没有独立的 BOOLEAN 存储类**，布尔只能用 INTEGER 0/1 表达；schema 与代码两侧都按 0/1 对齐。
 
@@ -249,11 +286,11 @@ def _now_iso() -> str:
 
 **为什么不直接存 bool**：SQLite 的类型系统只有 NULL/INTEGER/REAL/TEXT/BLOB 五种存储类，`BOOLEAN` 只是开发者约定的"类型亲和"别名，底层仍是 INTEGER。所以 Python 侧用 bool（语义清晰：`allowed=True/False`），落库时显式 `1 if allowed else 0` 转成整数，读回时 SQLite 返回 0/1。两边不混存，避免"有时存 True 有时存 1"的脏数据。
 
-### 为什么 target / reason 要截断？
+### 2. 为什么 target / reason 要截断？
 
 **一句话**：`target[:500]`、`reason[:300]` 是防脏数据闸门——命令行参数/路径/异常信息可能很长（比如一条超长管道命令），不截断会把 `sandbox_audit` 表撑爆，也让 `query` 倒序拉记录时塞满无用文本。截断是写库前的固定动作，调用方无需自己管长度。
 
-### 这个 repo 和 SessionRepository 是什么关系？
+### 3. 这个 repo 和 SessionRepository 是什么关系？
 
 **一句话**：两者平级，都继承同一个 `BaseRepository`——各自管理一张表（`sessions` vs `sandbox_audit`），共享基类的连接管理与 `_execute/_fetch_one/_fetch_all` 执行器。CLI 用 `db_path` 模式实例化（`cli/main.py:177` `SandboxAuditRepository(db_path=db_path)`），与 MemoryRepository/KnowledgeRepository 一样走 P-018 线程本地连接。
 
@@ -265,3 +302,4 @@ def _now_iso() -> str:
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

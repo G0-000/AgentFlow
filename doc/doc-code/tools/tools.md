@@ -151,7 +151,11 @@ from langchain.tools import BaseTool
 from agentflow.tools.tool_catalog import resolve_tool_tier, tier_sort_key
 ```
 
-**整块解析**：模块级 import 保持极轻——`lru_cache`（缓存装饰器）、`BaseTool`（类型标注用，不实例化）、以及 tool_catalog 里的两个排序函数 `resolve_tool_tier` / `tier_sort_key`。注意 5 个真正的工具模块**一个都不在顶部 import**——它们被推迟到 `get_builtin_tools()` 函数体内（块 2），这就是延迟加载的落点：import tools.py 本身不拖慢启动。
+**结构简析**：模块级 import 刻意保持极轻——只引入 `lru_cache`（缓存装饰器）、`BaseTool`（仅作类型标注，不实例化），以及 tool_catalog 里排序要用的 `resolve_tool_tier` / `tier_sort_key` 两个函数。9 个真正的工具模块一个都不在顶部 import，全部推迟到 `get_builtin_tools()` 函数体内。
+
+本块无函数签名，不展开参数表。
+
+**补充**：这就是延迟加载的落点——import tools.py 本身只拉这几样轻量符号，不触发 requests 等重依赖加载，因此 import tools.py 不拖慢 CLI 启动。
 
 ### 块 2：`get_builtin_tools` —— lru_cache + 函数内 import 的延迟加载
 
@@ -212,7 +216,11 @@ def get_builtin_tools() -> tuple[BaseTool, ...]:
     )
 ```
 
-**整块解析**（M4 增量）：函数签名、`@lru_cache(maxsize=1)`、函数内 import 的延迟加载机制与块 2 完全一致，变化只有两处——① import 从 5 行扩到 8 行（`dispatch_tool.dispatch_subagents`、`file_tools.read_file/write_file` 一次导入两个、`terminal_tool.terminal_run`）；② 返回元组从 5 项扩到 9 项，末尾追加 `terminal_run, read_file, write_file, dispatch_subagents`。这 4 个新工具走沙箱/子代理能力，自身依赖（沙箱 provider、审计 repo、派发服务）由 CLI main() 在装配期通过 configure 函数注入，本收集模块不感知。
+**结构简析**（M4 增量）：`@lru_cache(maxsize=1)` 包在 `get_builtin_tools()` 上——函数无参数，`maxsize=1` 即缓存唯一返回值。函数体是"函数内 import"：第一次调用时才 import 8 行工具模块，组装成 9 项元组返回；延迟加载机制与块 2 旧版完全一致，只是清单从 5 扩到 9。
+
+`get_builtin_tools()` 无参数，不展开参数表。
+
+**补充**：相比块 2 旧版，变化只有两处——① import 从 5 行扩到 8 行（新增 `dispatch_tool.dispatch_subagents`、`file_tools.read_file/write_file` 一次导入两个、`terminal_tool.terminal_run`）；② 返回元组从 5 项扩到 9 项，末尾追加 `terminal_run, read_file, write_file, dispatch_subagents`。这 4 个新工具走沙箱/子代理能力，自身依赖（沙箱 provider、审计 repo、派发服务）由 CLI main() 在装配期通过 configure 函数注入，本收集模块不感知。注意缓存的是工具对象，改了工具代码后要 `cache_clear()` 或重启进程才生效。
 
 ### 块 3：`_finalize_tool_catalog` —— 按 name 去重 + 按 tier 排序
 
@@ -234,7 +242,15 @@ def _finalize_tool_catalog(tools: list[BaseTool]) -> list[BaseTool]:
     return sorted(unique, key=lambda t: tier_sort_key(resolve_tool_tier(t.name)))
 ```
 
-**整块解析**：两步收尾——① **去重**：`seen` 集合记录已见工具名（归一化：strip 去空格 + lower 转小写），空名跳过、同名跳过，**只保留第一个出现的**；② **排序**：`sorted` 的 key 是两段联动——先 `resolve_tool_tier(t.name)` 查工具档位（未知兜底 optional），再 `tier_sort_key` 转成 `TOOL_TIER_ORDER` 里的下标整数，下标越小越靠前（runtime=0 最前，retired=6 最后）。排序是稳定的，去重后顺序相同的工具保持收集先后。
+**结构简析**：收尾分两步——① **去重**：`seen` 集合记录已见工具名（归一化为 `(t.name or "").strip().lower()`），空名跳过、同名跳过，只保留第一个出现的；② **排序**：`sorted` 的 key 是两段联动——先 `resolve_tool_tier(t.name)` 查档位（未知兜底 optional），再 `tier_sort_key` 转成 `TOOL_TIER_ORDER` 里的下标整数，下标越小越靠前（runtime=0 最前，retired=6 最后）。
+
+**`_finalize_tool_catalog()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tools` | `list[BaseTool]` | 必填 | 待收尾的工具列表（调用点传入 `list(get_builtin_tools())`）；函数遍历它去重后按 tier 升序返回新 list，不修改入参本身 |
+
+**补充**：`sorted` 是稳定排序，同档位工具保持收集先后顺序；去重丢弃的是"第二个及以后的同名工具"，避免重复注册报错/重复挂载。
 
 ### 块 4：`get_available_tools` —— 对外入口
 
@@ -244,7 +260,11 @@ def get_available_tools() -> list[BaseTool]:
     return _finalize_tool_catalog(list(get_builtin_tools()))
 ```
 
-**整块解析**：一行串起整条管线——`get_builtin_tools()`（缓存收集元组）→ `list(...)`（转 list）→ `_finalize_tool_catalog(...)`（去重+排序）→ 返回给 `create_agent(tools=...)`。M2 阶段"可用工具 = 全部内置工具"，没有外部工具注入/过滤逻辑；未来 gateway 加社区工具时，在这一层并集后再 finalize。
+**结构简析**：一行串起整条管线——`get_builtin_tools()`（缓存收集元组）→ `list(...)` 转 list → `_finalize_tool_catalog(...)` 去重+排序 → 返回给 `create_agent(tools=...)`。
+
+`get_available_tools()` 无参数，不展开参数表。
+
+**补充**：M2/M4 阶段"可用工具 = 全部内置工具"，没有外部工具注入/过滤逻辑；未来 gateway 加社区工具时，在这一层并集后再 finalize。
 
 ## ❓ Q&A
 
@@ -314,3 +334,4 @@ _自动生成于 doc-code 规范落地（2026-09-28）。来源：tools.py 头�
 _2026-09-30 追加：Q&A 归档区（"延迟收集 lru_cache"详解：延迟=函数内 import、缓存=只加载一次、副作用=改代码要清缓存，用户提问自动归纳）。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

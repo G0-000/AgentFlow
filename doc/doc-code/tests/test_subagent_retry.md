@@ -130,7 +130,25 @@ class SlowAgent:
         return {"messages": [AIMessage(content="太慢了")]}
 ```
 
-**整块解析**：两个假 agent 各司其职。`FlakyAgent` 的 `calls` 计数器递增 + 前 `fail_times` 次抛异常——模拟"模型瞬时故障后恢复"（真实场景：网络抖动、限流 1305）；`SlowAgent` 每次 `time.sleep(self.delay)` 睡满 3s——模拟"任务卡死不会自己结束"。两者的 `calls` 都是重试行为断言的关键证据。
+**结构简析**：两个假 agent 各司其职——`FlakyAgent` 模拟"模型瞬时故障后恢复"（网络抖动/限流），`SlowAgent` 模拟"任务卡死不会自己结束"。两者的 `calls` 计数器都是重试行为断言的关键证据。
+
+**`FlakyAgent.__init__()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `fail_times` | `int` | 必填 | 前 N 次 invoke 抛 `RuntimeError("模型临时故障")`，之后成功；存 `self.fail_times`，`self.calls` 从 0 计数 |
+
+`FlakyAgent.invoke(inputs)`：`inputs: dict`（必填，invoke 入参，本用例不读内容）；`calls += 1`，前 `fail_times` 次抛异常，之后返回 `{"messages": [AIMessage(content="终于成功")]}`。
+
+**`SlowAgent.__init__()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `delay` | `float` | `3.0` | invoke 里 `time.sleep(self.delay)` 睡满多久，模拟任务卡住 |
+
+`SlowAgent.invoke(inputs)`：`inputs: dict`（必填，不读内容）；`calls += 1`、`time.sleep(self.delay)`、返回 `{"messages": [AIMessage(content="太慢了")]}`。
+
+**落库要点**：`calls` 计数即重试行为本身——重试成功是 3 次（2 败 + 1 成）、重试放弃是 3 次（初 1 + 重 2）、超时不重试是 1 次。
 
 ### 块 2：_make_executor —— 真 executor + 假 agent 注入
 
@@ -142,7 +160,15 @@ def _make_executor(agent):
     return execu
 ```
 
-**整块解析**：与 test_subagent_parallel.py 同款装配模式——真实 `SubagentExecutor` + monkeypatch `_build_agent`。注意这里 `_make_executor(agent)` 直接接收 agent 实例（不像 parallel 版内部造 FakeAgent），因为 retry 测试要注入**不同的**假 agent（Flaky / Slow）。
+**结构简析**：与 test_subagent_parallel.py 同款装配模式——真实 `SubagentExecutor` + monkeypatch `_build_agent`。
+
+**`_make_executor()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `agent` | 假 agent 实例（FlakyAgent/SlowAgent） | 必填 | 要注入的 agent 实例；`execu._build_agent = lambda: agent` 把 executor 内部 agent 工厂换成它，返回装配好的 executor |
+
+**落库要点**：这里 `_make_executor(agent)` 直接接收 agent 实例（不像 parallel 版内部造 FakeAgent）——因为 retry 测试要注入**不同的**假 agent（Flaky / Slow）。
 
 ### 块 3：test_retry_succeeds_after_failures —— 重试到成功
 
@@ -157,7 +183,11 @@ def test_retry_succeeds_after_failures():
     assert agent.calls == 3  # 2 次失败 + 1 次成功
 ```
 
-**整块解析**：重试的"成功路径"。`FlakyAgent(fail_times=2)` 前两次抛异常，第三次成功；`run_with_retry(..., max_retries=2)` 允许 2 次重试。断言三件事：最终状态是 COMPLETED（不是 FAILED）、结果文本是 `"终于成功"`（第三次的返回）、`calls == 3`（恰好执行 3 次 = 初始 1 + 重试 2）——次数精确匹配证明重试逻辑真的跑了且没多跑。
+**结构简析**：重试的"成功路径"——前 2 次失败、第 3 次成功，最终 COMPLETED。
+
+**`test_retry_succeeds_after_failures()` 参数逐条解释**：无参数，直接断言 `FlakyAgent(fail_times=2)` + `run_with_retry("任务", max_retries=2)` 后：`status==COMPLETED`、`result=="终于成功"`、`calls==3`（2 次失败 + 1 次成功）。
+
+**落库要点**：`calls == 3`（初始 1 + 重试 2）次数精确匹配，证明重试逻辑真的跑了且没多跑。
 
 ### 块 4：test_retry_gives_up_after_max_retries —— 重试到放弃
 
@@ -172,7 +202,11 @@ def test_retry_gives_up_after_max_retries():
     assert "模型临时故障" in (result.error or "")
 ```
 
-**整块解析**：重试的"放弃路径"——`fail_times=99` 意味着永远失败。断言：状态 FAILED、`calls == 3`（初始 1 + 重试 2，**没有无限重试**）、错误信息里带 `"模型临时故障"`（最后那次异常被带进 SubagentResult.error）。这条钉死"重试次数 = max_retries，不会无限循环"。
+**结构简析**：重试的"放弃路径"——`fail_times=99` 永远失败，重试到上限后返回 FAILED。
+
+**`test_retry_gives_up_after_max_retries()` 参数逐条解释**：无参数，直接断言 `FlakyAgent(fail_times=99)` + `run_with_retry("任务", max_retries=2)` 后：`status==FAILED`、`calls==3`（初始 1 + 重试 2，无无限重试）、`"模型临时故障" in (result.error or "")`。
+
+**落库要点**：最后那次异常被带进 `SubagentResult.error`；`calls==3` 钉死"重试次数 = max_retries，不会无限循环"。
 
 ### 块 5：test_timeout_not_retried —— 超时不重试
 
@@ -186,7 +220,11 @@ def test_timeout_not_retried():
     assert agent.calls == 1  # 只执行一次，未重试
 ```
 
-**整块解析**：重试语义的分界点——`SlowAgent(3s)` + `timeout_seconds=1` 让任务必超时。断言：状态 TIMED_OUT、`calls == 1`（**只执行一次**）——run_with_retry 对 TIMED_OUT 直接返回不重试（`if result.status != FAILED or ...: return result`）。设计原因：超时重试只会再超时（任务本身跑不完），重试是浪费。
+**结构简析**：重试语义的分界点——TIMED_OUT 不重试。`SlowAgent(3s)` + `timeout_seconds=1` 让任务必超时。
+
+**`test_timeout_not_retried()` 参数逐条解释**：无参数，直接断言 `SlowAgent(delay=3.0)` + `run_with_retry("任务", max_retries=2, timeout_seconds=1)` 后：`status==TIMED_OUT`、`calls==1`（只执行一次，未重试）。
+
+**落库要点**：run_with_retry 对 TIMED_OUT 直接返回不重试（`if result.status != FAILED or ...: return result`）——超时重试只会再超时（任务本身跑不完），重试是浪费。
 
 ### 块 6：test_timeout_returns_promptly —— 超时及时返回（检查轮修正）
 
@@ -206,17 +244,21 @@ def test_timeout_returns_promptly():
     assert elapsed < 2.5  # 不能等到任务实际跑完（3s）
 ```
 
-**整块解析**：检查轮补的回归用例（对应 executor.py 的 `run()` 修复）。`time.monotonic()` 测真实耗时：任务睡 3s、超时 1s，**正确实现应 ~1s 返回**，断言 `< 2.5s` 留了余量但远小于 3s。修复前 `with ThreadPoolExecutor` 的 `__exit__` 默认 `wait=True` 会等悬挂线程跑完——`run()` 实际阻塞 3s，超时形同虚设；修复后超时路径 `pool.shutdown(wait=False)` 及时返回。**这是"超时真的生效"而非"标记了 TIMED_OUT"的直接证据**。
+**结构简析**：检查轮补的回归用例（对应 executor.py 的 `run()` 修复）——超时必须及时返回。任务睡 3s、超时 1s，用 `time.monotonic()` 测真实耗时，正确实现应 ~1s 返回。
+
+**`test_timeout_returns_promptly()` 参数逐条解释**：无参数，直接断言 `SlowAgent(delay=3.0)` + `run("任务", timeout_seconds=1)` 后：`status==TIMED_OUT`、`elapsed < 2.5`（不能等到任务实际跑完 3s）。
+
+**落库要点**：修复前 `with ThreadPoolExecutor` 的 `__exit__` 默认 `wait=True` 会等悬挂线程跑完（run 实际阻塞 3s，超时形同虚设）；修复后超时路径 `pool.shutdown(wait=False)` 及时返回。`elapsed < 2.5` 测的是"超时真的生效"而非"仅标记了 TIMED_OUT"。
 
 ## ❓ Q&A / 知识点
 
-### 为什么 TIMED_OUT 不重试，只重试 FAILED？（2026-10-01 用户提问）
+### 1. 为什么 TIMED_OUT 不重试，只重试 FAILED？（2026-10-01 用户提问）
 
 **一句话**：FAILED 是模型调用异常（网络抖动/限流），重试有机会成功；TIMED_OUT 说明任务本身跑不完（3s 的任务 1s 超时，重试只会再超时），重试是纯浪费。
 
 **依据源码**：executor.py `run_with_retry` 的判定 `if result.status != SubagentStatus.FAILED or attempt >= max_retries: return result`——只有 FAILED 且未达上限才继续 while。`calls == 1` 断言把这个契约钉死。
 
-### 超时"及时返回"和"标记 TIMED_OUT"有什么区别？
+### 2. 超时"及时返回"和"标记 TIMED_OUT"有什么区别？
 
 **一句话**：标记 TIMED_OUT 是"状态对了"，及时返回是"行为对了"。修复前：状态是 TIMED_OUT 但调用方仍阻塞到任务实际跑完（3s）——超时对用户体验无意义；修复后：~1s 就返回 TIMED_OUT，调用方立刻拿到结果继续流程。`elapsed < 2.5` 测的就是后者。
 
@@ -227,3 +269,4 @@ def test_timeout_returns_promptly():
 3. SlowAgent 睡 3s 会让超时用例实际耗时 ~1-3s——已是最小可行值（再短无法区分"及时返回"与"等任务跑完"）。
 ---
 _2026-10-01 新建：tests 测试文档（用例级验收对照，对齐 doc-code 规范：目录/结构图/流程图/成块代码解析/Q&A/风险点）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

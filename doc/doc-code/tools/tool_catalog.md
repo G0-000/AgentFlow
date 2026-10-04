@@ -140,7 +140,11 @@ ToolTier = Literal[
 ]
 ```
 
-**整块解析**：`ToolTier` 不是类，是 `Literal[...]` 类型别名——它把 tier 变量**静态锁死在 7 个字符串里**，Pylance/mypy 写 `"runtiem"`（拼错）或第 8 个档位会直接报错。7 档语义从上到下递减：runtime（系统核心，如澄清）→ core（日常常驻，如 todo）→ workspace（工作区，如 knowledge/fetch_url）→ plan（规划协作）→ goal（目标模式）→ optional（扩展可选，兜底位）→ retired（已退役，不参与调度）。
+**结构简析**：`ToolTier` 不是类，是 `Literal[...]` 类型别名——它把 tier 变量**静态锁死在 7 个字符串里**，Pylance/mypy 写 `"runtiem"`（拼错）或第 8 个档位会直接报错。7 档语义从上到下递减：runtime（系统核心，如澄清）→ core（日常常驻，如 todo）→ workspace（工作区，如 knowledge/fetch_url）→ plan（规划协作）→ goal（目标模式）→ optional（扩展可选，兜底位）→ retired（已退役，不参与调度）。
+
+本块是类型别名定义，无函数签名，不展开参数表。
+
+**补充**：`from __future__ import annotations` 让注解延迟求值；`Literal` 从 `typing` 导入，专用于"只能取固定几个值"的静态约束。
 
 ### 块 2：`TOOL_TIER_ORDER` + `TOOL_TIER_LABELS_ZH` —— 顺序基准与中文标签
 
@@ -168,7 +172,11 @@ TOOL_TIER_LABELS_ZH: dict[ToolTier, str] = {
 }
 ```
 
-**整块解析**：两张表职责分离——`TOOL_TIER_ORDER` 是**排序的唯一基准**（元组下标即权重，下标 0 最靠前），`TOOL_TIER_LABELS_ZH` 是**展示层映射**（给 UI/gateway 看的中文名）。`tuple[ToolTier, ...]` 的 `...` 表示不定长元组；类型标注要求每个元素都得是合法 tier。改顺序 = 改工具优先级（风险点 1），新增档位必须两张表同步加（风险点 2）。
+**结构简析**：两张表职责分离——`TOOL_TIER_ORDER` 是**排序的唯一基准**（元组下标即权重，下标 0 最靠前），`TOOL_TIER_LABELS_ZH` 是**展示层映射**（给 UI/gateway 看的中文名）。`tuple[ToolTier, ...]` 的 `...` 表示不定长元组；类型标注要求每个元素都得是合法 tier。
+
+本块是常量定义，无函数签名，不展开参数表。
+
+**补充**：改顺序 = 改工具优先级（风险点 1）；新增档位必须两张表同步加（风险点 2）。
 
 ### 块 3：`TOOL_TIER_MAP` —— M2 本地硬编码 5 个工具的档位
 
@@ -201,7 +209,11 @@ TOOL_TIER_MAP: dict[str, ToolTier] = {
     "dispatch_subagents": "core",
 ```
 
-**整块解析**（M4 增量）：紧接块 3 的 `fetch_url` 一行之后追加 4 个新工具档位——terminal_run / read_file / write_file 归 **workspace（工作区）**：它们是操作项目工作区（沙箱目录）的工具，与 knowledge/fetch_url 同档；`dispatch_subagents` 归 **core（日常常驻）**：子代理派发是编排核心能力，与 todo 同档，排序时排在 workspace 之前。注释 `# M4 新增：…` 直接写在字典内。key 同样是小写注册名，过 `normalize_tool_name` 后命中；未登记才会兜底 optional。
+**结构简析**（M4 增量）：紧接块 3 的 `fetch_url` 一行之后追加 4 个新工具档位——terminal_run / read_file / write_file 归 **workspace（工作区）**，dispatch_subagents 归 **core（日常常驻）**。注释 `# M4 新增：沙箱终端/文件（工作区场景）+ 子代理派发（核心编排）` 直接写在字典内。
+
+本块是字典字面量片段，无函数签名，不展开参数表。
+
+**补充**：key 都是小写注册名，过 `normalize_tool_name` 后命中；未登记才会兜底 optional。排序权重上 core（下标 1）比 workspace（下标 2）更靠前，工具列表里派发工具会排在工作区工具之前。
 
 ### 块 4：归一化 + 查档 + 中文标签三个小函数
 
@@ -225,7 +237,27 @@ def tool_tier_label_zh(tier: ToolTier | str | None) -> str:
     return TOOL_TIER_LABELS_ZH.get(key, TOOL_TIER_LABELS_ZH["optional"])  # type: ignore[return-value]
 ```
 
-**整块解析**：三个纯函数、职责单一——`normalize_tool_name` 统一入口（None→空串、strip、lower），后续查档都先过它，避免大小写/空格导致查不到；`resolve_tool_tier` 两级兜底（空名→optional；`dict.get(n, "optional")` 未知名→optional），**永不抛 KeyError**；`tool_tier_label_zh` 同样兜底，未知档位返回 optional 的"扩展可选"标签。`# type: ignore` 是因为最后一个 `.get` 的默认值也是 dict 内合法 key，类型推断保守。
+**结构简析**：三个纯函数、职责单一——`normalize_tool_name` 统一归一化入口（None→空串、strip、lower），后续查档都先过它，避免大小写/空格导致查不到；`resolve_tool_tier` 两级兜底（空名→optional；`dict.get(n, "optional")` 未知名→optional），**永不抛 KeyError**；`tool_tier_label_zh` 同样兜底，未知档位返回 optional 的"扩展可选"标签。
+
+**`normalize_tool_name()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `name` | `str \| None` | 必填 | 原始工具名；`str(name or "")` 先把 None 兜底成空串，再 strip 去首尾空格、lower 转小写后返回 |
+
+**`resolve_tool_tier()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `name` | `str \| None` | 必填 | 工具名；先过 `normalize_tool_name` 归一化，归一化后为空串直接返回 `"optional"`，否则 `TOOL_TIER_MAP.get(n, "optional")` 查档，未命中兜底 optional |
+
+**`tool_tier_label_zh()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tier` | `ToolTier \| str \| None` | 必填 | 档位；`str(tier or "optional").strip().lower()` 归一化后查 `TOOL_TIER_LABELS_ZH`，未知档位回退到 optional 的"扩展可选"标签 |
+
+**补充**：`# type: ignore[return-value]` 是因为最后一个 `.get` 的默认值 `TOOL_TIER_LABELS_ZH["optional"]` 本身也是 dict 内合法 key，类型推断保守才加的忽略。
 
 ### 块 5：`enrich_tool_catalog_fields` + `tier_sort_key` —— 字段注入与排序权重
 
@@ -251,7 +283,21 @@ def tier_sort_key(tier: ToolTier | str | None) -> int:
         return len(TOOL_TIER_ORDER)
 ```
 
-**整块解析**：`enrich_tool_catalog_fields` 是**不修改原 dict**（`out = dict(doc)` 浅拷贝）地往工具元数据里塞两个字段：`tool_type`（机读档位）+ `tool_type_label`（人读中文名），供 M7 gateway 返回给 UI。`tier_sort_key` 把档位转成排序整数：`TOOL_TIER_ORDER.index(t)` 返回下标（runtime=0 最小最靠前）；`try/except ValueError` 兜底——未知档位 `.index` 会抛错，此时返回 `len(TOOL_TIER_ORDER)`（=7），保证未知档位**永远排最后**而不崩。
+**结构简析**：`enrich_tool_catalog_fields` 是**不修改原 dict**（`out = dict(doc)` 浅拷贝）地往工具元数据里塞两个字段：`tool_type`（机读档位）+ `tool_type_label`（人读中文名），供 M7 gateway 返回给 UI。`tier_sort_key` 把档位转成排序整数：`TOOL_TIER_ORDER.index(t)` 返回下标（runtime=0 最小最靠前）；`try/except ValueError` 兜底——未知档位 `.index` 会抛错，此时返回 `len(TOOL_TIER_ORDER)`（=7），保证未知档位**永远排最后**而不崩。
+
+**`enrich_tool_catalog_fields()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `doc` | `dict[str, Any]` | 必填 | 工具元数据 dict；函数浅拷贝出 `out`，读 `out.get("name")` 查 tier，写入 `out["tool_type"]` 与 `out["tool_type_label"]` 后返回新 dict，原 `doc` 不动 |
+
+**`tier_sort_key()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `tier` | `ToolTier \| str \| None` | 必填 | 档位；归一化后 `TOOL_TIER_ORDER.index(t)` 取下标作权重（越小越靠前），未知档位抛 ValueError 时返回 `len(TOOL_TIER_ORDER)` 排最后 |
+
+**补充**：`enrich_tool_catalog_fields` 用途是 M7 gateway 返回工具列表 / 会话记录工具元数据时附带分层信息；`tier_sort_key` 是 tools.py `_finalize_tool_catalog` 的排序 key 来源。
 
 ## ❓ Q&A
 
@@ -278,3 +324,4 @@ A: 档位语义不同——terminal_run/read_file/write_file 是"操作工作区
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：tool_catalog.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

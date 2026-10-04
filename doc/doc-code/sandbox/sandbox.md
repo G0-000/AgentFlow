@@ -104,9 +104,11 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 ```
 
-**整块解析**：零业务依赖——`ABC` 标记抽象基类（不实现抽象方法就无法实例化），
-`abstractmethod` 装饰抽象方法。这个模块刻意不 import 任何实现类或异常类——
-异常类型只写在 docstring 里约定，保持接口层纯净。
+**结构简析**：零业务依赖——`ABC` 标记抽象基类（未实现抽象方法就无法实例化），`abstractmethod` 装饰抽象方法。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：本模块刻意不 import 任何实现类或异常类——异常类型只写在 docstring 里约定，保持接口层纯净。
 
 ### 块 2：类约定 + `__init__` + `id` property —— 共享的一半实现
 
@@ -126,11 +128,17 @@ class Sandbox(ABC):
         return self._id
 ```
 
-**整块解析**：ABC 并非全抽象——`__init__` 和 `id` 是**共享实现**：子类只负责把
-`id` 字符串传进来（NoopSandbox 传 `id="noop"`，LocalSandbox 传
-`f"local-{root_path.name or 'root'}"`），标识逻辑基类统一兜住。docstring 里那句
-"子代理所有宿主系统操作都经这里"是全局约束：任何宿主操作不绕开沙箱直接做
-（terminal_tool.py:35 注释：不要提供绕过 get_sandbox_provider 的执行路径）。
+**结构简析**：`Sandbox(ABC)` 并非全抽象——`__init__` 和 `id` 是共享实现，标识逻辑基类统一兜住；子类只负责把 id 字符串传进来。
+
+**`__init__()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `id` | `str` | 必填 | 沙箱唯一标识，存 `self._id`；子类传入——NoopSandbox 传 `id="noop"`，LocalSandbox 传 `f"local-{root_path.name or 'root'}"` |
+
+**`id` property 参数逐条解释**：无参数（property）。返回 `self._id`，作为 Provider 的 get/release 查表键。
+
+**落库要点**：docstring"子代理所有宿主系统操作都经这里"是全局约束——任何宿主操作不绕开沙箱直接做（terminal_tool.py:35 注释：不要提供绕过 get_sandbox_provider 的执行路径）。
 
 ### 块 3：抽象方法 1-3 —— 命令 / 读 / 列目录
 
@@ -148,10 +156,29 @@ class Sandbox(ABC):
         """列出沙箱内目录（相对路径列表，深度限制防爆炸）。"""
 ```
 
-**整块解析**：三个"读向"方法的签名即契约——`execute_command` 默认 `timeout=30` 秒；
-`list_dir` 默认 `max_depth=2`（docstring 注明"深度限制防爆炸"，LocalSandbox 里
-depth>=2 用 rglob、否则 glob，且结果截到 500 条）。注意方法体**只有 docstring 没有代码**
-——这是 `@abstractmethod` 的写法：基类不给实现，子类不全部实现就实例化报错。
+**结构简析**：三个"读向"抽象方法，方法体只有 docstring 没有代码——这是 `@abstractmethod` 的写法：基类不给实现，子类不全部实现就实例化报错。签名即契约。
+
+**`execute_command()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `command` | `str` | 必填 | 要在沙箱内执行的命令，返回 stdout+stderr 文本 |
+| `timeout` | `int` | `30` | 超时秒数 |
+
+**`read_file()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 沙箱内文件路径，返回文件内容文本 |
+
+**`list_dir()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 沙箱内目录路径 |
+| `max_depth` | `int` | `2` | 最多列出层数（docstring 注明"深度限制防爆炸"），返回相对路径列表 |
+
+**落库要点**：三个方法签名即子类契约，越界/权限问题抛 SandboxError 子孙。
 
 ### 块 4：抽象方法 4-6 —— 三种写/删语义
 
@@ -169,16 +196,34 @@ depth>=2 用 rglob、否则 glob，且结果截到 500 条）。注意方法体*
         """删除沙箱内文件。"""
 ```
 
-**整块解析**：三种写入语义刻意分开——`write_file` 收 `str` + `append: bool`
-（追加/覆盖文本），`update_file` 收 `bytes`（整体替换、二进制安全），`delete_file`
-只收路径。为什么 `update_file` 用 bytes 而 write 用 str：文本写入有 encoding 语义
-（LocalSandbox 固定 utf-8），二进制替换不该被文本编码碰。工具层目前只暴露
-write_file/read_file 两个工具（见 file_tools.py），update/delete 是给 Provider
-内部与未来扩展预留的接口面。
+**结构简析**：三种写/删语义刻意分开——方法体同样只有 docstring，靠 `@abstractmethod` 约束子类实现。
+
+**`write_file()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 沙箱内文件路径 |
+| `content` | `str` | 必填 | 文本内容，有 encoding 语义（LocalSandbox 固定 utf-8） |
+| `append` | `bool` | `False` | True 追加、False 覆盖 |
+
+**`update_file()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 沙箱内文件路径 |
+| `content` | `bytes` | 必填 | 二进制内容，整体替换、二进制安全（不该被文本编码碰） |
+
+**`delete_file()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `path` | `str` | 必填 | 要删除的沙箱内文件路径 |
+
+**落库要点**：`update_file` 用 bytes 而 write 用 str——文本写入有 encoding 语义，二进制替换不该被编码碰。工具层目前只暴露 write_file/read_file 两个工具（file_tools.py），update/delete 是给 Provider 内部与未来扩展预留的接口面。
 
 ## ❓ Q&A / 知识点
 
-### 为什么用 ABC 而不是 Protocol？
+### 1. 为什么用 ABC 而不是 Protocol？
 
 **一句话**：Sandbox 需要共享实现（`__init__` 存 id + `id` property），
 ABC 靠继承白捡这段公共逻辑；Protocol 只做结构约定、不带实现。
@@ -189,7 +234,7 @@ ABC 靠继承白捡这段公共逻辑；Protocol 只做结构约定、不带实�
 | 实例化拦截 | 未实现全部抽象方法 → 实例化即 TypeError | 无运行时检查（仅静态） |
 | 语义 | "是一个沙箱"（is-a） | "长得像沙箱"（structural） |
 
-### list_dir 为什么默认 max_depth=2、且只列相对路径？
+### 2. list_dir 为什么默认 max_depth=2、且只列相对路径？
 
 **一句话**：深度 + 条数双防爆——防止沙箱里放一个巨大目录时把模型上下文撑爆。
 源码佐证：LocalSandbox 实现里 `depth = max(1, int(max_depth))`，depth>=2 才用
@@ -205,3 +250,4 @@ ABC 靠继承白捡这段公共逻辑；Protocol 只做结构约定、不带实�
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

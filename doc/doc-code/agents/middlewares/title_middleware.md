@@ -124,7 +124,9 @@ from langchain_core.messages import AnyMessage
 _TITLE_MAX_CHARS = 20
 ```
 
-**整块解析**：依赖——`Any`/`NotRequired`（TypedDict 标注）、langchain 的 `AgentState` + `AgentMiddleware`、`AnyMessage`（消息基类）。`_TITLE_MAX_CHARS = 20` 是模块级常量：标题最多 20 字，改它会同时影响 CLI 显示与落库标题长度。
+**结构简析**：依赖——`Any`/`NotRequired`（TypedDict 标注）、langchain 的 `AgentState` + `AgentMiddleware`、`AnyMessage`（消息基类）。
+
+**补充**：`_TITLE_MAX_CHARS = 20` 是模块级常量——标题最多 20 字，改它会同时影响 CLI 显示与落库标题长度。
 
 ### 块 2：`TitleMiddlewareState` —— 挂 title 字段
 
@@ -135,7 +137,11 @@ class TitleMiddlewareState(AgentState):
     title: NotRequired[str | None]
 ```
 
-**整块解析**：继承 `AgentState`，扩一个可选字段 `title`（`NotRequired[str | None]`）。中间件返回 `{"title": ...}` 就 merge 进图状态；CLI 首轮后 `agent.get_state` 读的就是这个键。
+**结构简析**：继承 `AgentState`，扩一个可选字段 `title`。
+
+**字段说明**：`title: NotRequired[str | None]`——中间件返回 `{"title": ...}` 就 merge 进图状态。
+
+**补充**：CLI 首轮后 `agent.get_state` 读的就是这个键。
 
 ### 块 3：`TitleMiddleware` + `_generate_title()` —— 规则截断
 
@@ -158,7 +164,15 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return content[:_TITLE_MAX_CHARS] + ("…" if len(content) > _TITLE_MAX_CHARS else "")
 ```
 
-**整块解析**：`state_schema = TitleMiddlewareState` 注册扩展字段。`_generate_title` 四步：① `getattr(first_message, "content", "")` 安全取内容，`or ""` + `strip()` 兜底空白；② `replace("\n", " ")` 换行压成空格（标题单行）；③ 空内容返回 `"新对话"`；④ 截断 `[:_TITLE_MAX_CHARS]`（20 字），超长时尾部补 `"…"`。**为什么不用 LLM**（docstring 明说）：免费模型高峰限流（P-015）会让标题生成挂掉、拖慢首轮；规则截断 100% 稳定。未来换 LLM 只改这个方法内部。
+**结构简析**：`state_schema = TitleMiddlewareState` 注册扩展字段。`_generate_title` 四步：① `getattr(first_message, "content", "")` 安全取内容，`or ""` + `strip()` 兜底空白；② `replace("\n", " ")` 换行压成空格（标题单行）；③ 空内容返回 `"新对话"`；④ 截断 `[:_TITLE_MAX_CHARS]`（20 字），超长时尾部补 `"…"`。
+
+**`_generate_title()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `first_message` | `AnyMessage` | 必填 | 首条用户消息；取其 `.content`（`getattr` 默认 `""`），strip 后换行转空格，空串返回 `"新对话"`，否则截前 20 字、超长补 `"…"` |
+
+**落库要点**：**为什么不用 LLM**（docstring 明说）——免费模型高峰限流（P-015）会让标题生成挂掉、拖慢首轮；规则截断 100% 稳定。未来换 LLM 只改这个方法内部。
 
 ### 块 4：`before_model()` —— 幂等钩子
 
@@ -177,7 +191,16 @@ class TitleMiddleware(AgentMiddleware[TitleMiddlewareState]):
         return {"title": self._generate_title(first)}
 ```
 
-**整块解析**：`before_model` 在**每轮模型调用前**都跑，靠三个守卫保证只生成一次：① messages 空 → None；② `state.get("title")` 已有 → None（**幂等核心**——首轮写完 title，后续轮次直接跳过）；③ `messages[0].type != "human"` → None（只认用户第一句话，系统注入类消息不触发）。三个守卫都过才调 `_generate_title` 并返回 `{"title": ...}`。
+**结构简析**：`before_model` 在**每轮模型调用前**都跑，靠三个守卫保证只生成一次：① messages 空 → None；② `state.get("title")` 已有 → None（**幂等核心**）；③ `messages[0].type != "human"` → None（只认用户第一句话）。三个守卫都过才调 `_generate_title`。
+
+**`before_model()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `state` | `TitleMiddlewareState` | 必填 | 当前图状态；读 `state.get("messages", [])` 与 `state.get("title")`——messages 空、或已有 title、或首条非 human 时都返回 `None` |
+| `runtime` | 未标注 | 必填 | langgraph 运行时；本钩子未使用，按 AgentMiddleware 签名要求传入 |
+
+**落库要点**：三守卫全过后返回 `{"title": self._generate_title(first)}` merge 进 state；首轮写完 title 后，后续轮次守卫②命中直接返回 None，**不重复生成**（幂等）。
 
 ## ❓ Q&A
 
@@ -198,3 +221,4 @@ A: 不会——已有 title 时 before_model 直接返回 None，幂等
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：title_middleware.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

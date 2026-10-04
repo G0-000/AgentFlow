@@ -126,7 +126,9 @@ from langgraph.config import get_config
 _DEFAULT_BASE_DIR = "data"
 ```
 
-**整块解析**：依赖——`Path`（路径拼接/建目录）、`NotRequired`（TypedDict 可选字段）、langchain 的 `AgentState` 基类 + `AgentMiddleware` 中间件基类、`get_config`（在中间件里拿 langgraph 运行时配置）。`_DEFAULT_BASE_DIR = "data"` 是相对项目根的线程数据根（可被构造参数 base_dir 覆盖）。
+**结构简析**：依赖——`Path`（路径拼接/建目录）、`NotRequired`（TypedDict 可选字段）、langchain 的 `AgentState` 基类 + `AgentMiddleware` 中间件基类、`get_config`（在中间件里拿 langgraph 运行时配置）。
+
+**补充**：`_DEFAULT_BASE_DIR = "data"` 是相对项目根的线程数据根，可被构造参数 `base_dir` 覆盖。
 
 ### 块 2：`ThreadDataMiddlewareState` —— 挂 thread_data 字段
 
@@ -137,7 +139,11 @@ class ThreadDataMiddlewareState(AgentState):
     thread_data: NotRequired[dict[str, Any] | None]
 ```
 
-**整块解析**：继承 `AgentState`，只扩一个可选字段 `thread_data`（`NotRequired` = 可有可无）。中间件 `before_agent` 返回 `{"thread_data": {...}}` 就会 merge 进图状态，后续文件类工具从 state 里读这个 dict 拿到自己的工作目录。
+**结构简析**：继承 `AgentState`，只扩一个可选字段 `thread_data`（`NotRequired` = 可有可无）。
+
+**字段说明**：`thread_data: NotRequired[dict[str, Any] | None]`——中间件 `before_agent` 返回 `{"thread_data": {...}}` 就会 merge 进图状态。
+
+**补充**：后续文件类工具从 state 里读这个 dict 拿到自己的工作目录。
 
 ### 块 3：`ThreadDataMiddleware` 构造 + 取 thread_id
 
@@ -165,7 +171,16 @@ class ThreadDataMiddleware(AgentMiddleware[ThreadDataMiddlewareState]):
             return None
 ```
 
-**整块解析**：① `state_schema = ThreadDataMiddlewareState` 告诉 langgraph 这个中间件扩展了哪些状态字段。② `__init__` 存 `base_dir`（默认 `data/`，可注入）。③ `_thread_id_from_runtime` 是静态方法——用 `get_config()` 在运行时上下文里掏 `configurable.thread_id`；两层 `or {}` / `or ""` 兜底，整个包在 `try/except` 里，**任何异常都返回 None**（拿不到 thread_id 就静默跳过，不打断图）。
+**结构简析**：① `state_schema = ThreadDataMiddlewareState` 告诉 langgraph 这个中间件扩展了哪些状态字段。② `__init__` 存 `base_dir`（可注入）。③ `_thread_id_from_runtime` 是静态方法——用 `get_config()` 在运行时上下文里掏 `configurable.thread_id`；两层 `or {}` / `or ""` 兜底，整个包在 `try/except` 里，**任何异常都返回 None**。
+
+**`ThreadDataMiddleware.__init__()` / `_thread_id_from_runtime()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `base_dir`（`__init__`） | `str` | `_DEFAULT_BASE_DIR`（`"data"`） | 线程数据根目录，存为 `self.base_dir`；构造 `ThreadDataMiddleware(base_dir=...)` 可覆盖默认根 |
+| `runtime`（`_thread_id_from_runtime`，静态方法） | 未标注 | 必填 | langgraph 运行时对象；函数内用 `get_config()` 读 `config["configurable"]["thread_id"]`，空串/异常都返回 `None`（拿不到就静默跳过） |
+
+**补充**：拿不到 thread_id 时返回 None 而不抛错，不打断图的执行。
 
 ### 块 4：`thread_paths()` 算路径 + `before_agent()` 建目录
 
@@ -192,7 +207,17 @@ class ThreadDataMiddleware(AgentMiddleware[ThreadDataMiddlewareState]):
         return {"thread_data": {"thread_id": thread_id, **paths}}
 ```
 
-**整块解析**：两个方法职责分离——`thread_paths` 只**算**路径不建（`data/threads/{tid}/user-data/` 下四个键：thread_dir/workspace/uploads/outputs），便于单测；`before_agent` 是钩子：① 取 thread_id，空就 return None；② 算路径；③ `mkdir(parents=True, exist_ok=True)` 一次性建好四级目录（parents 连父目录一起建，exist_ok 已存在不报错——**幂等**）；④ 返回 `{"thread_data": {"thread_id": tid, **paths}}` merge 进 state。M2 是 eager（进图就建好），原版是 lazy（按需）。
+**结构简析**：两个方法职责分离——`thread_paths` 只**算**路径不建（便于单测）；`before_agent` 是钩子：取 thread_id → 空则 return None → 算路径 → 一次性建好四级目录 → 返回 `{"thread_data": {...}}` merge 进 state。
+
+**`thread_paths()` / `before_agent()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `thread_id`（`thread_paths`） | `str` | 必填 | 会话 ID；拼出 `root = Path(base_dir)/"threads"/thread_id/"user-data"`，返回四键 dict：`thread_dir`/`workspace`/`uploads`/`outputs`（不建目录） |
+| `state`（`before_agent`） | `ThreadDataMiddlewareState` | 必填 | 当前图状态；本钩子不读它，仅按 AgentMiddleware 签名要求传入 |
+| `runtime`（`before_agent`） | 未标注 | 必填 | langgraph 运行时；透传给 `_thread_id_from_runtime(runtime)` 取 thread_id |
+
+**落库要点**：`mkdir(parents=True, exist_ok=True)`——parents 连父目录一起建、exist_ok 已存在不报错（**幂等**）；返回 `{"thread_data": {"thread_id": tid, **paths}}`。M2 是 eager（进图就建好），原版是 lazy（按需）。
 
 ## ❓ Q&A
 
@@ -213,3 +238,4 @@ A: M2 简化：一次建好；原版 lazy 按需创建，M3 文件工具可改�
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：thread_data_middleware.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

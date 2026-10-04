@@ -120,7 +120,9 @@ from langgraph.checkpoint.base import BaseCheckpointSaver
 from agentflow.agents.lead_agent.prompt import build_lead_agent_system_prompt
 ```
 
-**整块解析**：五类依赖——① `create_agent`（langchain.agents，**不是** langgraph.prebuilt，注释明确警告：prebuilt 1.0.8 锁定版只有 `create_react_agent`，langchain 版才正确封装了 checkpointer 支持）；② `AgentMiddleware`（中间件基类）；③ `BaseChatModel` / `BaseTool`（类型标注）；④ `BaseCheckpointSaver`（检查点基类，参数类型）；⑤ 同包 `build_lead_agent_system_prompt`（系统提示词构建，缺省时调用）。
+**结构简析**：五类依赖——① `create_agent`（langchain.agents，**不是** langgraph.prebuilt，注释明确警告：prebuilt 1.0.8 锁定版只有 `create_react_agent`，langchain 版才正确封装了 checkpointer 支持）；② `AgentMiddleware`（中间件基类）；③ `BaseChatModel` / `BaseTool`（类型标注）；④ `BaseCheckpointSaver`（检查点基类，参数类型）；⑤ 同包 `build_lead_agent_system_prompt`（系统提示词构建，缺省时调用）。
+
+**补充**：务必从 `langchain.agents` 导入 `create_agent`，不要从 `langgraph.prebuilt` 导入——后者锁定版封装不全。
 
 ### 块 2：`make_lead_agent` 签名 + docstring —— 装配入口
 
@@ -155,7 +157,19 @@ def make_lead_agent(
     """
 ```
 
-**整块解析**：五个参数里前两个（model、checkpointer）必填，后三个 `= None` 可缺省。docstring 点明三条设计决策：① 状态类型先用 create_agent 内置的，自定义 `ThreadState`（thread_state.py）以后再接；② **checkpointer 依赖注入**——不在函数里建，由调用方传入，CLI 传 SQLite、测试传内存版；③ 系统提示词缺省走 prompt.py 统一拼装，不散在调用处。
+**结构简析**：五个参数里前两个（model、checkpointer）必填，后三个 `= None` 可缺省。docstring 点明三条设计决策：① 状态类型先用 create_agent 内置的，自定义 `ThreadState`（thread_state.py）以后再接；② **checkpointer 依赖注入**——不在函数里建，由调用方传入，CLI 传 SQLite、测试传内存版；③ 系统提示词缺省走 prompt.py 统一拼装，不散在调用处。
+
+**`make_lead_agent()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `model` | `BaseChatModel` | 必填 | 对话模型（`factory.create_chat_model` 产出） |
+| `checkpointer` | `BaseCheckpointSaver` | 必填 | SQLite 检查点实例，按 `thread_id` 维度持久化图状态；依赖注入，不在函数内建 |
+| `tools` | `list[BaseTool] \| None` | `None` | 工具列表；M1 为空（纯对话），M2 传 `get_builtin_tools()`；函数体内 `tools or []` 兜底 |
+| `middlewares` | `list[AgentMiddleware] \| None` | `None` | 中间件列表（M2: TitleMiddleware / ThreadDataMiddleware）；函数体内以 `middleware=middlewares or []` 透传 |
+| `system_prompt` | `str \| None` | `None` | 系统提示词；缺省用 `build_lead_agent_system_prompt()`（含当前时间注入）；直接传值会覆盖默认注入 |
+
+**补充**：返回 `CompiledStateGraph`（已编译的 LangGraph，可 `.stream()` 调用）。
 
 ### 块 3：函数体 —— 一行委托 create_agent
 
@@ -169,7 +183,7 @@ def make_lead_agent(
     )
 ```
 
-**整块解析**：函数体就是一次 `create_agent(...)` 调用并原样 return。三个 `or` 兜底：
+**结构简析**：函数体就是一次 `create_agent(...)` 调用并原样 return，三个 `or` 做缺省兜底：
 
 | 表达式 | 作用 |
 |---|---|
@@ -177,7 +191,7 @@ def make_lead_agent(
 | `middleware=middlewares or []` | 注意 create_agent 的形参名是**单数 `middleware`**（P-017 踩过）；传入的仍是 `middlewares` 列表 |
 | `system_prompt or build_lead_agent_system_prompt()` | 不传系统提示词时，自动用 prompt.py 构建（含当前时间注入） |
 
-`checkpointer=checkpointer` 直接透传——这就是 checkpointer 注入 langgraph 的挂载点（详见本文件 Q&A 归档区）。
+**落库要点**：`checkpointer=checkpointer` 直接透传——这就是 checkpointer 注入 langgraph 的挂载点（详见本文件 Q&A 归档区），每步状态落 SQLite、按 thread_id 分档恢复。
 
 ## ⚠️ 风险点
 
@@ -187,7 +201,7 @@ def make_lead_agent(
 
 ## ❓ Q&A / 知识点（问答自动归档区）
 
-### checkpointer 是如何注入 langgraph 的？（2026-09-30 用户提问）
+### 1. checkpointer 是如何注入 langgraph 的？（2026-09-30 用户提问）
 
 **链路**（注入点就在 `create_agent`）：
 
@@ -233,3 +247,4 @@ CLI 传 SQLite 版（真实持久化），测试可传内存版（InMemorySaver 
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：agent.py 头部注释 + 顶层符号。_
 _2026-09-30 追加：Q&A 归档区（checkpointer 注入机制，用户提问自动归纳）。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

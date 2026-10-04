@@ -88,7 +88,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 ```
 
-**整块解析**：零第三方依赖——`from __future__ import annotations` 延迟注解求值（3.12 下允许类内引用自身类型）；`dataclass` 装饰器把普通类变成带 `__init__`/`__repr__` 的数据类；`field` 用于声明"惰性默认值"。这个模块刻意不引 pydantic——M1 只要类型化容器，不要运行时校验。
+**结构简析**：零第三方依赖——`from __future__ import annotations` 延迟注解求值（3.12 下允许类内引用自身类型）；`dataclass` 装饰器把普通类变成带 `__init__`/`__repr__` 的数据类；`field` 用于声明「惰性默认值」。
+
+**补充**：本模块刻意不引 pydantic——M1 只要类型化容器，不要运行时校验。
 
 ### 块 2：`ChatModelConfig` —— 所有供应商共用一套字段
 
@@ -109,7 +111,17 @@ class ChatModelConfig:
     temperature: float = 0.3             # 采样温度：越低越确定，越高越发散
 ```
 
-**整块解析**：5 个字段全部有默认值，核心设计是**一套字段覆盖全部供应商**——因为 DeepSeek/GLM/Ollama/LM Studio 都讲 OpenAI 兼容协议，区别只在 `base_url`/`model`/`api_key`，不需要每家写一个配置类。两个要点：① `provider="openai-compatible"` 是**分发依据**（factory 据此选分支），不是真去连 OpenAI；② `api_key` 这里只是空字符串占位，真正的 `${ENV}` 展开发生在上层 models_yaml（本类不感知环境变量）。
+**结构简析**：5 个字段全部有默认值，核心设计是**一套字段覆盖全部供应商**——因为 DeepSeek/GLM/Ollama/LM Studio 都讲 OpenAI 兼容协议，区别只在 `base_url`/`model`/`api_key`，不需要每家写一个配置类。
+
+**`ChatModelConfig` 字段逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `provider` | `str` | `"openai-compatible"` | 供应商类型；**factory 据此分发分支**（不是真去连 OpenAI） |
+| `base_url` | `str` | `""` | API 地址，如 `https://api.deepseek.com/v1` |
+| `model` | `str` | `""` | 模型名，如 `deepseek-chat` / `glm-4.7-flash` |
+| `api_key` | `str` | `""` | 密钥；支持 `${ENV}` 占位（展开发生在上层 models_yaml，本类不感知环境变量） |
+| `temperature` | `float` | `0.3` | 采样温度：越低越确定，越高越发散 |
 
 ### 块 3：`ModelConfig` —— chat / embedding 两个模型槽位
 
@@ -122,11 +134,18 @@ class ModelConfig:
     embedding: ChatModelConfig = field(default_factory=ChatModelConfig)
 ```
 
-**整块解析**：容器类只挂两个 `ChatModelConfig`——`chat`（对话模型）与 `embedding`（M3 知识库向量化模型）。关键写法是 `field(default_factory=ChatModelConfig)` 而不是 `chat: ChatModelConfig = ChatModelConfig()`：可变/对象类型的默认值必须用 `default_factory` **惰性求值**（每次实例化才 new 一个），否则所有 ModelConfig 会共享同一个实例（dataclass 的经典坑）。embedding 复用同一个 `ChatModelConfig` 类，是因为向量化服务同样走 OpenAI 兼容协议。
+**结构简析**：容器类只挂两个 `ChatModelConfig`——`chat`（对话模型）与 `embedding`（M3 知识库向量化模型）；embedding 复用同一个类，是因为向量化服务同样走 OpenAI 兼容协议。
+
+**`ModelConfig` 字段逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `chat` | `ChatModelConfig` | `field(default_factory=ChatModelConfig)` | 对话模型配置；用 default_factory **惰性求值**（每次实例化才 new 一个），避免所有 ModelConfig 共享同一实例的 dataclass 经典坑 |
+| `embedding` | `ChatModelConfig` | `field(default_factory=ChatModelConfig)` | embedding 向量化模型配置；装配时由 models_yaml 显式传 `temperature=0.0`（chat 默认 0.3），配置类本身不区分二者 |
 
 ## ❓ Q&A / 知识点
 
-### 为什么用 dataclass 而不是 pydantic？
+### 1. 为什么用 dataclass 而不是 pydantic？
 
 **一句话**：M1 只需要"类型化的配置袋子"，不需要运行时校验——dataclass 零依赖、最轻。
 
@@ -138,7 +157,7 @@ class ModelConfig:
 
 校验责任被有意上移到调用方：app_config 装配后，CLI 检查 `cfg.models.chat.api_key` 是否为空，缺了就明确提示退出（见 cli/main.py）。
 
-### 为什么 embedding 也用 ChatModelConfig？
+### 2. 为什么 embedding 也用 ChatModelConfig？
 
 **一句话**：embedding 服务同样走 OpenAI 兼容协议，字段（base_url/model/api_key）和对话模型完全同构，没必要另建一个 EmbeddingConfig 类。区别只在默认采样温度——chat 默认 0.3，embedding 默认 0.0（在 models_yaml 装配时显式传入），配置类本身不区分二者。
 
@@ -150,3 +169,4 @@ class ModelConfig:
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：model_config.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

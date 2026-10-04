@@ -113,7 +113,9 @@ from datetime import datetime, timedelta, timezone
 WEEKDAY_NAMES_ZH = ["周一", "周二", "周三", "周四", "周五", "周六", "周日"]
 ```
 
-**整块解析**：只依赖标准库 `datetime` 三个对象（datetime 本体、timedelta 算偏移、timezone 带时区）。`WEEKDAY_NAMES_ZH` 是模块级常量——顺序严格对齐 `datetime.weekday()` 的返回值（Monday=0 … Sunday=6），索引直接取中文星期名，顺序错一天就错位。
+**结构简析**：只依赖标准库 `datetime` 三个对象（datetime 本体、timedelta 算偏移、timezone 带时区）。`WEEKDAY_NAMES_ZH` 是模块级常量。
+
+**补充**：列表顺序严格对齐 `datetime.weekday()` 的返回值（Monday=0 … Sunday=6），索引直接取中文星期名，顺序错一天就错位。
 
 ### 块 2：`format_runtime_now_for_prompt()` —— 时间格式化
 
@@ -157,7 +159,16 @@ def format_runtime_now_for_prompt(
     return f"{dt.strftime('%Y-%m-%d')} {weekday_zh} ({utc_part})"
 ```
 
-**整块解析**：四步——① 时区兜底：`dt` 缺省取 `datetime.now().astimezone()`；若传入的 dt 没带时区（`tzinfo is None`），先按 UTC 0 标上再转本地（与原版一致）。② 星期：`dt.weekday()` 0=周一，直接索引 `WEEKDAY_NAMES_ZH`。③ 偏移：`utcoffset()` 转分钟数，`divmod(abs, 60)` 拆出 HH/MM，正负号单独判，`f"{hh:02d}:{mm:02d}"` 补零两位。④ 拼成 `"2026-09-28 周一 (UTC+08:00)"`。`prompt_language` 是 keyword-only 占位参数（M1 固定中文，保留对齐原版签名）。**为什么要 UTC 偏移**：模型无本地时区概念，显式偏移才能算"还有几小时到期"。
+**结构简析**：四步——① 时区兜底：`dt` 缺省取 `datetime.now().astimezone()`；若传入的 dt 没带时区（`tzinfo is None`），先按 UTC 0 标上再转本地（与原版一致）。② 星期：`dt.weekday()` 0=周一，直接索引 `WEEKDAY_NAMES_ZH`。③ 偏移：`utcoffset()` 转分钟数，`divmod(abs, 60)` 拆出 HH/MM，正负号单独判，`f"{hh:02d}:{mm:02d}"` 补零两位。④ 拼成 `"2026-09-28 周一 (UTC+08:00)"`。
+
+**`format_runtime_now_for_prompt()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `dt` | `datetime \| None` | `None` | 指定时刻；缺省取 `datetime.now().astimezone()`（自动补本地时区）；若 `dt.tzinfo is None` 则先按 UTC 0 标注再转本地 |
+| `prompt_language` | `str \| None` | `None` | **关键字-only 参数**（`*` 之后）；原版用于切换中英文星期名，M1 固定中文，保留仅为对齐原版签名，当前不影响输出 |
+
+**落库要点**：返回格式 `"YYYY-MM-DD 周X (UTC+HH:MM)"`；**为什么要 UTC 偏移**——模型无本地时区概念，显式偏移才能算"还有几小时到期"这类相对时间。
 
 ### 块 3：`build_lead_agent_system_prompt()` —— 拼装系统提示词
 
@@ -185,15 +196,24 @@ def build_lead_agent_system_prompt(
     return "\n\n".join(parts)
 ```
 
-**整块解析**：固定三段 + 可选两段——parts 初始必含：人格定位、中文回答指令、**当前系统时间（当场调用块 2 生成）**。`memory_context` / `skills_context` 默认空串，**非空才 append**（空时对应段落不出现，提示词保持干净）。最后 `"\n\n".join(parts)` 用空行分段。这就是"时间注入而非时间工具"的落点：模型读 system prompt 直接看到今天是周几、几点、UTC 偏移多少，省掉一次 datetime 工具往返（P-011）。
+**结构简析**：固定三段 + 可选两段——parts 初始必含：人格定位、中文回答指令、**当前系统时间（当场调用 `format_runtime_now_for_prompt()` 生成）**。`memory_context` / `skills_context` 默认空串，**非空才 append**。最后 `"\n\n".join(parts)` 用空行分段。
+
+**`build_lead_agent_system_prompt()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `memory_context` | `str` | `""` | 记忆召回段落（跨会话用户事实，由 CLI 注入）；空串则对应段落不出现，非空才 `parts.append` |
+| `skills_context` | `str` | `""` | 可用技能说明（SKILL.md 列表，由 CLI 注入）；空串则不出现，非空才 `parts.append` |
+
+**落库要点**：这就是"时间注入而非时间工具"的落点——模型读 system prompt 直接看到今天是周几、几点、UTC 偏移多少，省掉一次 datetime 工具往返（P-011）。
 
 ## ❓ Q&A / 知识点
 
-### 为什么把时间"注入 system prompt"而不是做一个 datetime 工具？
+### 1. 为什么把时间"注入 system prompt"而不是做一个 datetime 工具？
 
 **一句话**：做时间工具要让模型先决定调工具、等工具返回、再继续——多一轮模型往返，慢且费 token。直接把 `当前系统时间：2026-09-28 周一 (UTC+08:00)` 写进 system prompt，模型第一轮就知道"今天"，零工具调用。这就是 P-011 删 datetime 工具改注入的原因（原版也没有独立时间工具）。
 
-### `WEEKDAY_NAMES_ZH` 为什么顺序不能动？
+### 2. `WEEKDAY_NAMES_ZH` 为什么顺序不能动？
 
 **一句话**：`datetime.weekday()` 返回 0=周一、6=周日，列表索引和返回值一一对应。`WEEKDAY_NAMES_ZH[0]` 必须是"周一"、`[6]` 必须是"周日"——顺序一旦调换，周二就会显示成周三这类整体错位。这也是风险点 1 的来源。
 
@@ -205,3 +225,4 @@ def build_lead_agent_system_prompt(
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：prompt.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

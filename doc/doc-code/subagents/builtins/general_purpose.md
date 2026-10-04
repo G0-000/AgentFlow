@@ -90,7 +90,11 @@ from __future__ import annotations
 from agentflow.subagents.config import SubagentConfig
 ```
 
-**整块解析**：只依赖同包的 `SubagentConfig`。本文件不建逻辑、不注册表，只 new 一个配置实例——注册表装配在 builtins/__init__.py。
+**结构简析**：只 import 同包的 `SubagentConfig`，不建逻辑、不注册表，仅 new 一个配置实例。
+
+本块无可逐条解释的函数（仅 import）。
+
+**补充**：注册表装配在 builtins/__init__.py，本文件只负责产出配置对象。
 
 ### 块 2：GENERAL_PURPOSE_CONFIG 完整实例
 
@@ -124,27 +128,29 @@ GENERAL_PURPOSE_CONFIG = SubagentConfig(
 )
 ```
 
-**整块解析**：
+**结构简析**：直接 `SubagentConfig(...)` 构造一个通用子代理配置实例，逐字段指定取值；未列的 `disallowed_tools` 走 config 默认黑名单三件套。
 
-| 字段 | 取值 | 含义 |
-|---|---|---|
-| `name` | `"general-purpose"` | 注册表键，与 BUILTIN_SUBAGENTS 键名逐字一致 |
-| `description` | 多行文本 | 告诉主 Agent"何时派它"：复杂多步骤、可拆并行；不适合极简一步 |
-| `system_prompt` | `<行为准则>`+`<输出格式>` | 自主闭环、可核验结论、**禁止澄清**、四段式输出 |
-| `tools` | `None` | 继承父级全部工具（executor 再按 disallowed 剔三件套） |
-| `model` | `"inherit"` | 复用父模型 |
-| `max_turns` | `100` | 比 bash 子代理（50）宽松——复杂任务轮次多 |
-| `timeout_seconds` | `120` | 单任务上限 |
+**`SubagentConfig()` 参数逐条解释**（本实例实际传入的字段）：
 
-system_prompt 里"不要向用户发起澄清提问"与 config 默认黑名单排 `ask_clarification` 是双重保险。
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `name` | `str` | 必填 | `"general-purpose"`，注册表键，与 `BUILTIN_SUBAGENTS` 键名逐字一致 |
+| `description` | `str` | 必填 | 多行文本，告诉主 Agent"何时派它"：复杂多步骤、可拆并行；不适合极简一步 |
+| `system_prompt` | `str` | 必填 | `<行为准则>`+`<输出格式>`：自主闭环、可核验结论、**禁止澄清**、四段式输出（摘要/发现/产出/未完成项） |
+| `tools` | `list[str] \| None` | `None` | 此处显式传 `None` = 继承父级全部工具，executor 再按 disallowed 剔三件套 |
+| `model` | `str` | `"inherit"` | 此处显式 `"inherit"`，复用父模型 |
+| `max_turns` | `int` | `100` | 此处显式 100，比 bash 子代理（50）宽松——复杂任务轮次多 |
+| `timeout_seconds` | `int` | `120` | 此处显式 120，单任务上限 |
+
+**落库要点**：`disallowed_tools` 未在此列出，走 config 默认 `["subagent","dispatch_subagents","ask_clarification"]`；system_prompt 里"不要向用户发起澄清提问"与该黑名单排 `ask_clarification` 是双重保险。
 
 ## ❓ Q&A / 知识点
 
-### tools=None 是不是意味着子代理啥工具都能用？
+### 1. tools=None 是不是意味着子代理啥工具都能用？
 
 **一句话**：几乎全继承，但不是无限制——`tools=None` 跳过白名单裁剪，可 `disallowed_tools` 黑名单这道闸仍生效，默认三件套（subagent / dispatch_subagents / ask_clarification）照样被剔掉。
 
-### 为什么通用子代理明确"不要向用户发起澄清提问"？
+### 2. 为什么通用子代理明确"不要向用户发起澄清提问"？
 
 **一句话**：子代理面前没有用户——它是被主 Agent 派去干活的分身，任务已被主 Agent 拆好；它若反问，没人可答，只会卡死循环。所以 system_prompt 从行为上禁止澄清，config 黑名单又从工具上排掉 ask_clarification。
 
@@ -156,3 +162,4 @@ system_prompt 里"不要向用户发起澄清提问"与 config 默认黑名单�
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

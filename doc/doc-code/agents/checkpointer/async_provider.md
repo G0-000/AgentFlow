@@ -90,7 +90,9 @@ import aiosqlite
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
 ```
 
-**整块解析**：与同步版（provider.py）的对称关系——标准库 `sqlite3` 换成 `aiosqlite`（异步 SQLite 驱动），`SqliteSaver` 换成 `langgraph.checkpoint.sqlite.aio` 子模块里的 `AsyncSqliteSaver`。包路径多了一层 `.aio`。CLI 用不到这两个 import（M1-M6 走同步版），仅为 M7 gateway 预留。
+**结构简析**：与同步版（provider.py）的对称关系——标准库 `sqlite3` 换成 `aiosqlite`（异步 SQLite 驱动），`SqliteSaver` 换成 `langgraph.checkpoint.sqlite.aio` 子模块里的 `AsyncSqliteSaver`。
+
+**补充**：包路径多了一层 `.aio`。CLI 用不到这两个 import（M1-M6 走同步版），仅为 M7 gateway 预留。
 
 ### 块 2：`async create_async_sqlite_checkpointer()` —— 异步工厂
 
@@ -108,15 +110,23 @@ async def create_async_sqlite_checkpointer(db_path: str) -> AsyncSqliteSaver:
     return AsyncSqliteSaver(conn)
 ```
 
-**整块解析**：与同步版函数体同构，但处处 `await`——① `await aiosqlite.connect(db_path)` 异步建连接（不阻塞事件循环）；② `AsyncSqliteSaver(conn)` 构造并返回。与同步版的关键差异写在 docstring 返回段：**调用方拿到 saver 后必须再 `await cp.setup()` 一次性建好检查点表**，同步版 `SqliteSaver` 无需这步。这是 M1-M6 不能在 CLI 误用本文件的原因——漏了 setup 会缺表。
+**结构简析**：与同步版函数体同构，但处处 `await`——① `await aiosqlite.connect(db_path)` 异步建连接（不阻塞事件循环）；② `AsyncSqliteSaver(conn)` 构造并返回。
+
+**`create_async_sqlite_checkpointer()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `db_path` | `str` | 必填 | SQLite 文件路径；`await aiosqlite.connect(db_path)` 异步建连接后交 `AsyncSqliteSaver(conn)` |
+
+**落库要点**：与同步版的关键差异写在 docstring 返回段——**调用方拿到 saver 后必须再 `await cp.setup()` 一次性建好检查点表**，同步版 `SqliteSaver` 无需这步。这是 M1-M6 不能在 CLI 误用本文件的原因——漏了 setup 会缺表。
 
 ## ❓ Q&A / 知识点
 
-### 为什么同步版不用 `setup()`，异步版却要？
+### 1. 为什么同步版不用 `setup()`，异步版却要？
 
 **一句话**：`AsyncSqliteSaver` 首次使用前需显式 `await setup()` 建 checkpoint 相关表；同步版 `SqliteSaver(conn)` 构造时表结构由连接/首次操作隐式处理。docstring 明确要求调用方（M7 gateway）在拿到 saver 后先 `await cp.setup()`，否则读写状态会报表不存在。
 
-### M1-M6 为什么不能用这个异步检查点？
+### 2. M1-M6 为什么不能用这个异步检查点？
 
 **一句话**：一是 CLI 是同步阻塞模型（`agent.stream` 同步跑），异步 saver 要在事件循环里 await 才能用；二是漏了 `await cp.setup()` 初始化步骤会缺表。同步场景统一用 `provider.py` 的 `create_sqlite_checkpointer`，异步 gateway（M7）才走本文件——两份并存、互不干扰。
 
@@ -128,3 +138,4 @@ async def create_async_sqlite_checkpointer(db_path: str) -> AsyncSqliteSaver:
 ---
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：async_provider.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_

@@ -154,7 +154,9 @@ _KNOWN_DIMS: dict[str, int] = {
 }
 ```
 
-**整块解析**：从 base.py 只拿四个符号（两个默认常量、异常、基类）。`_KNOWN_DIMS` 是手工维护的"模型名 → 维度"查表，覆盖云端 OpenAI 系、智谱、本地 BGE 系列（带/不带 `baai/` 前缀两形态都列了）。它的价值是**避免探针调用**：已知模型直接查表拿维度，不用真发一次请求去量向量长度。
+**结构简析**：从 base.py 只拿四个符号（两个默认常量 `DEFAULT_EMBEDDING_MODEL/DEFAULT_EMBEDDING_DIM`、异常 `EmbeddingError`、基类 `EmbeddingProvider`）；`functools.lru_cache` 供后面 `_embed_cached` 用。`_KNOWN_DIMS` 是手工维护的"模型名 → 维度"查表，覆盖云端 OpenAI 系、智谱、本地 BGE 系列（带/不带 `baai/` 前缀两形态都列了）。
+
+**补充**：它的价值是**避免探针调用**——已知模型直接查表拿维度，不用真发一次请求去量向量长度；新模型在表内追加即可。
 
 ### 块 2：`known_embedding_dim` + `_is_local_config` —— 查表与本地判定
 
@@ -177,7 +179,21 @@ def _is_local_config(cfg: ChatModelConfig) -> bool:
     return "/" in model_id and not base_url and not model_id.startswith(("http://", "https://"))
 ```
 
-**整块解析**：两个纯判定函数。`known_embedding_dim` 做 strip+lower 后查表，未知返回 None（让上层走探针）。`_is_local_config` 是"云端/本地"分流的核心规则：① provider 字面等于 `local` → 本地；② 否则看模型 id 形态——含 `/`（如 `baai/bge-m3`）、且没配 base_url、且不是 http(s) 开头，就当作 HF repo 形态走本地。三条同时成立才算本地。
+**结构简析**：两个纯判定函数。`known_embedding_dim` 做 strip+lower 后查表，未知返回 None（让上层走探针）。`_is_local_config` 是"云端/本地"分流的核心规则：① provider 字面等于 `local` → 本地；② 否则看模型 id 形态——含 `/`（如 `baai/bge-m3`）、且没配 base_url、且不是 http(s) 开头，就当作 HF repo 形态走本地，三条同时成立才算本地。
+
+**`known_embedding_dim()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `model_id` | `str` | 必填 | 模型名；空串直接返回 `None`，否则 `strip().lower()` 后查 `_KNOWN_DIMS`（大小写不敏感），未命中返回 `None` 让上层走探针 |
+
+**`_is_local_config()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `cfg` | `ChatModelConfig` | 必填 | 待判定配置；`cfg.provider` strip+lower 后等于 `"local"` 即返回 `True`；否则要求 `cfg.model` 含 `/`、`cfg.base_url` 为空、且不以 `http(s)://` 开头才返回 `True`（HF repo 形态） |
+
+**补充**：这两个函数一个管"已知维度"、一个管"本地/云端分流"，是 `_resolve_provider` 与 `detect_embedding_dim` 的判定底座。
 
 ### 块 3：`CloudEmbeddingProvider` —— OpenAI 兼容 /embeddings 实现
 
@@ -217,7 +233,16 @@ class CloudEmbeddingProvider(EmbeddingProvider):
             raise EmbeddingError(f"云端向量化失败: {type(exc).__name__}: {str(exc)[:200]}") from exc
 ```
 
-**整块解析**：这是 `EmbeddingProvider` 接口的云端实现。要点：① `requests` 在函数内延迟 import，没装就抛 `EmbeddingError`；② 请求体是标准 OpenAI 兼容 `{"model":..., "input": texts}`，URL 拼 `{base_url}/embeddings`；③ **按 `index` 字段排序**保证输出与输入顺序对齐（base.py 接口契约）；④ 返回条数与输入不符即抛错；⑤ 网络/鉴权/格式异常统一包装成 `EmbeddingError`（`except EmbeddingError: raise` 先放行已包装的，避免二次包装）。
+**结构简析**：这是 `EmbeddingProvider` 接口的云端实现。要点：① `requests` 在 `embed_batch` 内延迟 import，没装就抛 `EmbeddingError`；② 请求体是标准 OpenAI 兼容 `{"model":..., "input": texts}`，URL 拼 `{base_url}/embeddings`；③ **按 `index` 字段排序**保证输出与输入顺序对齐（base.py 接口契约）；④ 返回条数与输入不符即抛错；⑤ 网络/鉴权/格式异常统一包装成 `EmbeddingError`（`except EmbeddingError: raise` 先放行已包装的，避免二次包装）。
+
+**`CloudEmbeddingProvider.__init__()` / `embed_batch()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `cfg`（`__init__`） | `ChatModelConfig` | 必填 | 持久化为 `self.cfg`；`model_name` 取 `(cfg.model or DEFAULT_EMBEDDING_MODEL).strip() or DEFAULT_EMBEDDING_MODEL`（空模型名回退默认） |
+| `texts`（`embed_batch`） | `list[str]` | 必填 | 待向量化文本；空列表直接返回 `[]`；POST `{"model": self.model_name, "input": texts}`，`timeout=60`，按返回 `data[].index` 排序后取 `embedding`，条数不符抛 `EmbeddingError` |
+
+**落库要点**：请求头 `Authorization: Bearer {cfg.api_key}`，URL 为 `{base_url.rstrip('/')}/embeddings`；所有非 `EmbeddingError` 异常统一包装成 `EmbeddingError("云端向量化失败: ...")`（异常类型名 + 消息截 200 字）。
 
 ### 块 4：`LocalEmbeddingProvider` + `_resolve_provider` —— 本地实现与选择器
 
@@ -244,7 +269,16 @@ def _resolve_provider(cfg: ChatModelConfig | None) -> EmbeddingProvider:
     return CloudEmbeddingProvider(mc)
 ```
 
-**整块解析**：`LocalEmbeddingProvider` 几乎是空壳——因为 LM Studio/Ollama 也讲 OpenAI 兼容协议，`embed_batch` 直接委托 `CloudEmbeddingProvider(self.cfg).embed_batch(texts)`，只靠 cfg 里的 base_url/api_key 区分本地远端。`_resolve_provider` 是工厂：cfg 为空时建一个默认 openai 配置，再用 `_is_local_config` 决定返回 Local 还是 Cloud。这就是"注册表/选择器"角色——上层只拿 `EmbeddingProvider`，不关心背后是云是本地。
+**结构简析**：`LocalEmbeddingProvider` 几乎是空壳——因为 LM Studio/Ollama 也讲 OpenAI 兼容协议，`embed_batch` 直接委托 `CloudEmbeddingProvider(self.cfg).embed_batch(texts)`，只靠 cfg 里的 base_url/api_key 区分本地远端。`_resolve_provider` 是工厂：cfg 为空时建一个默认 openai 配置，再用 `_is_local_config` 决定返回 Local 还是 Cloud。
+
+**`LocalEmbeddingProvider` / `_resolve_provider()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `cfg`（Local `__init__`/`embed_batch` 传入） | `ChatModelConfig` | 必填 | 与云端同款：持久化 `self.cfg`、`model_name` 回退默认；`embed_batch(texts)` 直接 `return CloudEmbeddingProvider(self.cfg).embed_batch(texts)`，只靠 cfg 的 base_url/api_key 指向本地端口 |
+| `cfg`（`_resolve_provider`） | `ChatModelConfig \| None` | `None` | 工厂入参；`None` 时建默认 `ChatModelConfig(provider="openai", model=DEFAULT_EMBEDDING_MODEL, base_url="", api_key="")`，再按 `_is_local_config(mc)` 分流——为真返回 `LocalEmbeddingProvider(mc)`，否则 `CloudEmbeddingProvider(mc)` |
+
+**补充**：这就是"注册表/选择器"角色——上层只拿 `EmbeddingProvider`，不关心背后是云是本地。
 
 ### 块 5：`_embed_cached` —— LRU 缓存的单条向量化
 
@@ -260,7 +294,19 @@ def _embed_cached(text: str, model_name: str, base_url: str, api_key: str, provi
     return tuple(vec)
 ```
 
-**整块解析**：`@lru_cache(maxsize=256)` 把缓存 key 显式做成 5 个标量参数（text/model/base_url/api_key/provider_kind）——**不能直接用 cfg 对象做 key**（不可哈希/不稳定），所以拆成标量。返回 `tuple[float,...]` 也是为了可哈希。缓存命中时完全不发 HTTP。注意 key 含 model_name/base_url，换模型或换端点后缓存自然失效（key 变了）。
+**结构简析**：`@lru_cache(maxsize=256)` 把缓存 key 显式做成 5 个标量参数——**不能直接用 cfg 对象做 key**（不可哈希/不稳定），所以拆成标量；返回 `tuple[float,...]` 也是为了可哈希。缓存命中时完全不发 HTTP。
+
+**`_embed_cached()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `text` | `str` | 必填 | 单条待向量化文本；作为缓存 key 之一，命中即直接返回缓存向量 |
+| `model_name` | `str` | 必填 | 模型名；重建 cfg 用，换模型即不同缓存 key |
+| `base_url` | `str` | 必填 | 端点地址；重建 cfg 用，换端点即缓存失效 |
+| `api_key` | `str` | 必填 | 鉴权 key；重建 cfg 用 |
+| `provider_kind` | `str` | 必填 | `"local"` 或 `"cloud"`；决定重建 cfg 时 `provider="local"` 还是 `"openai"` |
+
+**落库要点**：函数体内用这 5 个标量重建 `ChatModelConfig` → `_resolve_provider(cfg).embed_batch([text])[0]` → `tuple(vec)` 返回。key 含 model_name/base_url，换模型或换端点后缓存自然失效（key 变了），不会串维度。
 
 ### 块 6：`get_embeddings` / `get_embedding` —— 公共入口
 
@@ -285,7 +331,17 @@ def get_embedding(text: str, cfg: ChatModelConfig | None = None) -> list[float]:
     return get_embeddings([text], cfg)[0]
 ```
 
-**整块解析**：对外两个入口。`get_embeddings` 先判空、再算一次 `kind`（local/cloud），然后**逐条**走 `_embed_cached`（批量里每条单独缓存，命中即省一次请求）。`get_embedding` 是单条便捷包装——复用 `get_embeddings([text])[0]`。service.py 建库用 `get_embeddings`，查询用 `get_embedding`。
+**结构简析**：对外两个入口。`get_embeddings` 先判空、再算一次 `kind`（local/cloud），然后**逐条**走 `_embed_cached`（批量里每条单独缓存，命中即省一次请求）。`get_embedding` 是单条便捷包装——复用 `get_embeddings([text])[0]`。
+
+**`get_embeddings()` / `get_embedding()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `texts`（`get_embeddings`） | `list[str]` | 必填 | 批量文本；空列表直接返回 `[]`；逐条调 `_embed_cached(t, mc.model, mc.base_url, mc.api_key, kind)`，收集成 `list[list[float]]` |
+| `cfg`（两者） | `ChatModelConfig \| None` | `None` | 为 `None` 时建默认 `ChatModelConfig(provider="openai", model=DEFAULT_EMBEDDING_MODEL, base_url="", api_key="")`；`get_embeddings` 用它算 `kind = "local" if _is_local_config(mc) else "cloud"` |
+| `text`（`get_embedding`） | `str` | 必填 | 单条文本；内部 `return get_embeddings([text], cfg)[0]`，取首条向量 |
+
+**补充**：service.py 建库用 `get_embeddings`（批量），查询用 `get_embedding`（单条）。
 
 ### 块 7：`detect_embedding_dim` —— 已知表 → 探针 → 兜底
 
@@ -311,17 +367,26 @@ def detect_embedding_dim(
     return fallback
 ```
 
-**整块解析**：维度探测三级降级——① `known_embedding_dim` 查表命中直接返回（零请求）；② 没命中就发一次探针请求 `"dimension probe"`，量 `len(vec)`；③ 探针也失败（EmbeddingError）就回退 `fallback`（默认 1536）。`*, fallback=` 关键字-only 参数强制调用方显式传兜底值。当前 service.py 未直接调用本函数，但它是建库前确定维度的标准入口。
+**结构简析**：维度探测三级降级——① `known_embedding_dim` 查表命中直接返回（零请求）；② 没命中就发一次探针请求 `"dimension probe"`，量 `len(vec)`；③ 探针也失败（`EmbeddingError`）就回退 `fallback`。
+
+**`detect_embedding_dim()` 参数逐条解释**：
+
+| 参数 | 类型 | 默认值 | 含义 |
+|---|---|---|---|
+| `cfg` | `ChatModelConfig \| None` | `None` | 为 `None` 时建默认 openai 配置；先用 `known_embedding_dim(mc.model)` 查表，命中即返回已知维度 |
+| `fallback` | `int` | `DEFAULT_EMBEDDING_DIM`（1536） | **关键字-only 参数**（`*` 之后），强制调用方显式传兜底值；探针失败（`EmbeddingError` 被 `pass` 吞掉）或探针返回空向量时返回它 |
+
+**补充**：当前 service.py 未直接调用本函数，但它是建库前确定维度的标准入口。
 
 ## ❓ Q&A / 知识点
 
-### LocalEmbeddingProvider 为什么不自己发请求？
+### 1. LocalEmbeddingProvider 为什么不自己发请求？
 
 **一句话**：LM Studio / Ollama 都讲 OpenAI 兼容协议，`/embeddings` 请求格式与云端完全一致，所以本地实现直接委托 `CloudEmbeddingProvider`，只靠 cfg 的 base_url/api_key 指向本地端口——一个 HTTP 实现通吃云与本地。
 
 这也是"全走 OpenAI 兼容协议"设计思想的直接结果：如果本地后端协议不同，Local 就必须重写 `embed_batch`；现在省了一份代码。
 
-### 为什么 `_embed_cached` 要拆成 5 个标量参数，而不是直接传 cfg？
+### 2. 为什么 `_embed_cached` 要拆成 5 个标量参数，而不是直接传 cfg？
 
 **一句话**：`functools.lru_cache` 要求所有参数**可哈希**；`ChatModelConfig` 是 dataclass 实例，且为了缓存 key 稳定，作者显式拆成 text/model/base_url/api_key/provider_kind 五个标量，返回值也转成 `tuple`（list 不可哈希）。
 
@@ -336,3 +401,4 @@ def detect_embedding_dim(
 
 ---
 _2026-09-30 新建：M3 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
+_2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_
