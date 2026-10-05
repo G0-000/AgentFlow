@@ -30,6 +30,8 @@
 │ steps_to_json / steps_from_json                           │
 │   落库 plan_steps_json 与断点恢复的双向序列化               │
 └──────────────────────────────────────────────────────────┘
+extract： 抽取
+parse： 解析 剖析
 ```
 
 **调用链（Grep 自 agentflow. 核实）**：
@@ -123,11 +125,11 @@ from dataclasses import dataclass
 class PlanStep:
     """单个计划步骤（与 goals.plan_steps_json 数组元素逐字段对齐）。"""
 
-    ref: str                      # 步骤唯一编号（如 "s1"）
-    short_name: str               # 短名（终端展示用）
-    description: str             # 步骤详细描述（nudge 提示词用）
-    depends_refs: list[str]       # 前置步骤 ref 列表（空 = 无依赖）
-    status: str = "pending"       # pending/executing/completed/failed
+    ref: str  # 步骤唯一编号（如 "s1"）
+    short_name: str  # 短名（终端展示用）
+    description: str  # 步骤详细描述（nudge 提示词用）
+    depends_refs: list[str]  # 前置步骤 ref 列表（空 = 无依赖）
+    status: str = "pending"  # pending/executing/completed/failed
 ```
 
 **结构简析**：依赖极薄——只要 `json`（序列化）和 `@dataclass`。`PlanStep` 是单个计划步骤的数据类，五个字段与 `goals.plan_steps_json` 数组元素逐一对齐（落库/恢复都靠这个形状）；`status` 默认 `"pending"`，四种取值构成步骤级状态机，与 goal 级状态分层。
@@ -328,6 +330,44 @@ __all__ = [
 这种**按名字引用**，无论数组怎么排，`by_ref` 查表都能定位到同一步。这也是 `PlanStep.ref`
 被 `topo_sort` 强制要求唯一的原因。
 
+### 3. `depends_refs` 里到底填什么字符串？具体怎么写？
+
+**填的是"同计划内其它步骤的 `ref` 编号"**——不是步骤描述、不是自然语言、不是数组下标。
+
+每个步骤自己有一个唯一 `ref`（模型生成计划 JSON 时定义，如 `"s1"`/`"s2"`）；
+`depends_refs` 就是把"我依赖谁"写成"那几步的 ref"的列表。
+
+一个 3 步计划实例（模型吐出的 JSON）：
+
+```json
+{
+  "steps": [
+    {"ref": "s1", "short_name": "调研", "description": "收集需求", "depends_refs": []},
+    {"ref": "s2", "short_name": "写方案", "description": "产出方案文档", "depends_refs": ["s1"]},
+    {"ref": "s3", "short_name": "评审", "description": "评审并定稿", "depends_refs": ["s2"]}
+  ]
+}
+```
+
+逐行读法：
+
+| 步骤 | depends_refs | 含义 |
+|---|---|---|
+| s1 | `[]` | 无前置依赖，可最先执行 |
+| s2 | `["s1"]` | s1 **完成后**才能开始（s1 的 ref 就是 "s1"） |
+| s3 | `["s2"]` | s2 完成后才能开始，形成链 s1→s2→s3 |
+
+执行时 `resolver` 的 `topo_sort` 按这张依赖表排可执行顺序：先 s1 → 再 s2 → 最后 s3。
+
+两点关键细节：
+
+1. **谁负责填**：模型生成计划时自己写 `ref` 和 `depends_refs`（ref 即它起的名）；
+   `parse_steps_json` 只校验"是字符串列表"，**不查 ref 是否真实存在**——指向未声明的 ref
+   （如 `["s9"]`）由 `resolver.topo_sort` 抛 `PlanCycleError` 拦截（见块 3 与风险点 2）。
+2. **为什么用 ref 不用下标**：`topo_sort` 会把步骤数组重排成可执行顺序，若依赖写
+   `[0, 2]`（下标），重排后"第 0 个"就指错了步骤；用 `["s1"]` 按名字引用，
+   无论数组怎么排都能定位到同一步（即上方 Q&A 2 的完整解释）。
+
 ## ⚠️ 风险点
 
 1. `extract_first_json_object` 只截**第一个** `{...}`：模型若先输出示例 JSON 再输出真计划，
@@ -342,3 +382,5 @@ __all__ = [
 _2026-10-02 新建：M5 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
 
 _2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_
+
+_2026-10-05 追加：Q&A 3（depends_refs 填什么——同计划内其它步骤的 ref 编号 + 3 步实例 + 未知 ref 由 topo_sort 拦截）。_

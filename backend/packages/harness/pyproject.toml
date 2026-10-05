@@ -15,6 +15,9 @@ dependencies = [
     "httpx>=0.28.0",                      # HTTP 客户端
     "dotenv>=0.9.9",                      # 读 .env
     "tiktoken>=0.8.0",                    # token 计数（M3 上下文）
+    "langchain-mcp-adapters>=0.1.0",   # MCP 外部服务器接入（M6：MultiServerMCPClient）
+    "ddgs>=9.10.0",                    # DuckDuckGo 免费搜索（M6：community/web 无 key provider）
+    "pyjwt>=2.8.0",                    # JWT 签发/校验（M6：webui/auth.py + authz 守卫）
     "typing_extensions>=4.12.0",          # 类型扩展
 ]
 

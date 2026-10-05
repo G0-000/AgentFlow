@@ -5,10 +5,10 @@
 #       只验证"分块 → 落库 → 相似度排序 → 召回"这条链路本身。
 # ============================================================================
 import agentflow.knowledge.service as svc_mod
+from agentflow.config.model_config import ChatModelConfig
 from agentflow.knowledge.service import KnowledgeService
 from agentflow.persistence.bootstrap import init_db
 from agentflow.persistence.knowledge_repositories import KnowledgeRepository
-from agentflow.config.model_config import ChatModelConfig
 
 
 def _fake_vec(text: str) -> list[float]:

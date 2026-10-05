@@ -2,10 +2,11 @@
 # AgentFlow · tests/test_middleware_title.py —— 标题中间件测试（M2）
 # 验收点 4：自动标题。覆盖：首条消息生成/幂等/落库。
 # ============================================================================
+from langchain_core.messages import AIMessage, HumanMessage
+
 from agentflow.agents.middlewares.title_middleware import TitleMiddleware
 from agentflow.persistence.bootstrap import init_db
 from agentflow.persistence.session_repositories import SessionRepository
-from langchain_core.messages import AIMessage, HumanMessage
 
 
 def _state(messages, title=None):

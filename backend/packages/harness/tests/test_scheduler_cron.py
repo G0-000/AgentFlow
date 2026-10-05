@@ -4,6 +4,7 @@
 # 用 cron_matches_at / normalize_schedule 纯函数 + AutomationScheduler._tick
 # 注入固定 now + FakeRepo/FakeQueue，不起 daemon 线程、不碰模型。
 # ============================================================================
+# ruff: noqa: DTZ001 —— 测试构造固定时间点（cron 匹配用字段比较），naive datetime 是测试语义
 from datetime import datetime
 
 from agentflow.scheduler.cron import cron_matches_at, normalize_schedule

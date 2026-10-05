@@ -9,7 +9,7 @@
 
 > 看代码前先读这里。每个子目录对应一个代码包（config/models/persistence/agents/tools/cli/subagents/sandbox），
 > 每份域文档 = **①文件清单 ②设计说明 ③你问过的问题总结（Q&A） ④原版对照**。
-> **本页 = 总目录**：一页看清全部 65 个文件"为什么这么设计"（M1 28 + M2 11 + M3 三包 11 个 + M4 子代理/沙箱两包 13 个）。
+> **本页 = 总目录**：一页看清全部文件"为什么这么设计"（M1-M4 65 个 + M5 长任务/定时 6 个 + M6 扩展治理 12 个）。
 > **tests/（第 3 节）**：5 个测试文件的用例级文档（M4 新增，对应验收点 1-4 + 回归）。
 
 ## 1. 代码全景（agentflow/ 65 文件 · M4）
@@ -27,7 +27,12 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 ├── skills/       2 文件  技能域（loader 技能加载）
 ├── subagents/    7 文件  子代理域（M4：config/registry/executor + builtins）
 ├── sandbox/      6 文件  沙箱域（M4：ABC/Provider/Noop/Local 目录隔离）
-└── cli/          2 文件  命令行入口（对话循环）
+├── mcp/          3 文件  MCP 外部服务器接入（M6：client + tools）
+├── community/web 5 文件  第三方搜索集成（M6：provider/registry/ddgs）
+├── authz/        2 文件  鉴权守卫（M6：JWT 401 语义）
+├── observability 3 文件  可观测（M6：tables/store/recorder）
+├── webui/        3 文件  WebUI 鉴权（M6：auth/middleware）
+└── cli/          6 文档  命令行入口（main 总览 + 4 功能子文档）
 ```
 
 ## 2. M1 文件总目录（逐文件设计说明 · 后续里程碑在此持续追加）
@@ -132,6 +137,21 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 ### cli/（6）
 - [main.py](cli/main.md)（总览：入口/结构图/知识点/Q&A） · [__init__.py](cli/__init__.md)
 - 功能子文档： [assembly.md](cli/assembly.md)（装配） · [automation.md](cli/automation.md)（定时子命令） · [goal.md](cli/goal.md)（长任务） · [repl.md](cli/repl.md)（对话循环）
+
+### mcp/（M6，3 文件）
+- [client.py](mcp/client.md)（build_server_params：stdio/sse/http 参数构建） · [tools.py](mcp/tools.md)（load_mcp_tools 同步桥接）
+
+### community/web/（M6，5 文件）
+- [provider.py](community/web/provider.md)（WebSearchProvider ABC） · [registry.py](community/web/registry.md)（注册/解析） · providers/: [ddgs.py](community/web/providers/ddgs.md)（免费搜索）
+
+### authz/（M6，2 文件）
+- [http_guard.py](authz/http_guard.md)（AuthRequiredError 401 语义守卫）
+
+### observability/（M6，3 文件）
+- [tables.py](observability/tables.md)（表名常量） · [store.py](observability/store.md)（ObsTraceStore） · [recorder.py](observability/recorder.md)（fire-and-forget）
+
+### webui/（M6，3 文件）
+- [auth.py](webui/auth.md)（PBKDF2 + JWT） · [middleware.py](webui/middleware.md)（WebuiAuthGuard 白名单+401）
 
 ### knowledge/（6）
 - [chunker.py](knowledge/chunker.md) · [service.py](knowledge/service.md) · [__init__.py](knowledge/__init__.md)

@@ -186,6 +186,42 @@ def judge_last_reply(model, last_text: str) -> dict:
 goal_loop 的 `fallback_streak`，≥3 就熔断 paused，所以"一直判 continue"不会无限空转，最终会被
 goal_loop 兜底熔断（R1）。这正是"判定器容错即安全"的闭环。
 
+
+### 2. judge_last_reply 返回的 verdict / summary / reason 各是什么意思？
+
+**一句话**：判定模型对"这一步做完了没有"下结论的**三字段 JSON 契约**——
+`verdict` = 结论（主循环真正消费的），`summary` = 一步成果的一句话总结，`reason` = 下这个结论的理由。
+
+```python
+def judge_last_reply(model, last_text: str) -> dict:
+    # 返回 {"verdict": "complete|continue", "summary": "...", "reason": "..."}
+```
+
+**逐字段解释**：
+
+| 字段 | 取值 | 含义 | 谁消费 |
+|---|---|---|---|
+| `verdict` | `"complete"` / `"continue"` | 判定结论：本步骤目标是否已达成 | **goal_loop 主循环**（唯一被消费的字段） |
+| `summary` | 中文短句 | 一句话总结本步成果（模型生成） | 判定输出契约的一部分：留痕/可观测/后续汇总扩展 |
+| `reason` | 中文短句 | 模型给出该结论的判断理由 | 同左：可解释性 / 调试 / 审计依据 |
+
+**verdict 两路如何驱动主循环**（goal_loop.py:207-223）：
+
+```
+verdict == "complete"（或文本带 <completed> 标签）
+   → step 标 COMPLETED → complete_step 落库 → fallback_streak 清零 → 下圈 while 捡下一步
+verdict == "continue"
+   → step 回落 pending → fallback_streak += 1 → 下圈 while 重新捡起【同一步】再 nudge
+      （fallback_streak >= 3 → 熔断 pause，守卫③）
+```
+
+**为什么三字段齐全**：提示词强制判定器"只输出一个严格 JSON 对象"，三字段是**输出格式契约**——
+即使主循环当前只读 verdict，summary/reason 也保证判定可解释、可留痕（审计"为什么这一步被跳过/重跑"），
+不会出现"模型判了但没人知道依据"的黑盒。
+
+**兜底语义**（对应 Q&A 1）：解析失败/异常时三字段整体回落
+`{"verdict": "continue", "summary": "", "reason": ""}`——宁可多跑一轮，不误判完工。
+
 ## ⚠️ 风险点
 
 1. `except Exception` 兜底过宽：吞掉所有错误（含编程错误），排查时看不到真实异常栈——测试/调试时

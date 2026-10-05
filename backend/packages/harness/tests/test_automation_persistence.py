@@ -1,6 +1,7 @@
 # ============================================================================
 # AgentFlow · tests/test_automation_persistence.py —— 定时任务定义与运行记录（M5）
 # 验收项：⑤记录。
+# ruff: noqa: RUF059 —— 部分用例只需 repo，conn 解包未使用是测试惯例
 # 用 init_db(":memory:") + AutomationRepository 直测，无 mock、不依赖 API。
 # ============================================================================
 from agentflow.persistence.automation_repositories import AutomationRepository
