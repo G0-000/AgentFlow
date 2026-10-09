@@ -149,6 +149,42 @@ def create_sqlite_checkpointer(db_path: str) -> SqliteSaver:
 
 **一句话**：SQLite 默认禁止跨线程用同一个连接（`check_same_thread=True` 会抛错）。这里设 False 是因为 langgraph 内部线程池可能在别的线程访问该连接；并发安全不靠 SQLite 默认锁，而由 WAL 模式 + 短事务串行化保证。CLI 单线程跑，但工具节点可能在后台线程执行（P-018），必须放行。
 
+### 3. checkpointer 就是 Agent 的状态管理吗？是 LangGraph 的机制吗？
+
+**一句话**：**是**。checkpointer（检查点器）是 LangGraph 官方的**状态持久化接口**——图运行时的
+状态（messages 列表等）默认只在内存，进程结束就丢；挂上 checkpointer 后，每次节点执行前后
+LangGraph **自动**把图状态序列化存进 SQLite，同一 thread_id 再 invoke 时自动恢复。
+
+**这行代码的真实身份**：`create_sqlite_checkpointer` 是 agentflow 的**薄封装**，内部本质就是
+`SqliteSaver(conn)`——**状态管理本体是 LangGraph 官方类**（`langgraph.checkpoint.sqlite.SqliteSaver`），
+agentflow 只是包一层方便装配。
+
+**生效链路**：
+
+```text
+create_sqlite_checkpointer(db_path) → SqliteSaver
+        │
+        ▼
+create_agent(model=..., checkpointer=checkpointer, ...)   ← 挂到图上
+        │
+        ▼
+agent.invoke({messages}, config={"configurable": {"thread_id": "abc"}})
+        │
+        ├─ 每次节点执行 → LangGraph 自动把图状态写进 SQLite 的 checkpoint 表
+        └─ 同一 thread_id 再 invoke → LangGraph 自动从 SQLite 恢复状态
+           （对话历史还在 → "--thread 续聊/续长任务" 的底层机制）
+```
+
+**容易混的点：两个"库"的分工**：
+
+| | 谁写的 | 内容 | 用途 |
+|---|---|---|---|
+| `checkpoint` 表 | **LangGraph 自管**（`SqliteSaver` 内部建表） | 图状态（消息链、step 计数） | `--thread` 恢复对话/长任务 |
+| `sessions` / `session_messages` 表 | **agentflow 自写**（SessionRepository） | 业务记录（会话行 + 明文消息） | 展示/查询/审计 |
+
+两者互不覆盖：**图状态归 checkpointer，业务记录归 agentflow**——这正是 M5 的 R3 写序约定
+（恢复以 SQL 坐标为基准，checkpointer 只管消息历史）。
+
 ## ⚠️ 风险点
 
 1. check_same_thread=False 是必须的（CLI 单线程跑，但 langgraph 内部可能跨线程）
@@ -158,3 +194,5 @@ def create_sqlite_checkpointer(db_path: str) -> SqliteSaver:
 _自动生成于 doc-code 规范落地（2026-09-28）。来源：provider.py 头部注释 + 顶层符号。_
 _2026-09-30 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
 _2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_
+
+_2026-10-07 追加：Q&A 3（checkpointer = LangGraph 状态管理落盘机制；薄封装本质 + 生效链路 + 与业务库分工表）。_

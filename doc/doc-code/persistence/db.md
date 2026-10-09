@@ -35,8 +35,8 @@
 
 ## 💡 设计思想
 
-1. SQLite 唯一属主 = persistence/：所有连接都走这里，
-   统一配置（Row/WAL/外键），避免各模块各自开连接配置漂移。
+1. 业务库连接入口 = persistence/：业务 repo 的连接走这里，
+   统一配置（Row/WAL/外键）。框架 checkpoint 和 M6 observability 使用各自存储入口。
 2. WAL 模式：读写并发不互斥，未来 gateway 多连接友好。
 
 ## 🎯 实用场景

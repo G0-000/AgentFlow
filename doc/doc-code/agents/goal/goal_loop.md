@@ -497,6 +497,52 @@ SQL 里该步是 executing。若不重置，`next_ready_step` 只挑 pending 步
 也不能 while 无限跑下去（烧 token、卡 CLI）——`pause_task("judge_fallback")` 熔断退出，留个
 stop_reason，用户 `--thread` 看一眼再决定续跑。这就是 R1 熔断：把"异常的连续"变成"可恢复的断点"。
 
+### 4. 守卫①（步数上限）和 nudge 是什么关系？"完成步数 ≥ 上限"后发生了什么？
+
+**一句话**：**没关系**。nudge 只是"执行当前这一步"的提示词；守卫①是循环开头的一道闸——
+`completed_steps >= max_steps` 一旦成立，这一步**根本不执行**，直接 `pause_task("max_steps")` 停住。
+
+**每轮 while 的真实顺序**（对应块 6 源码 349-370 行）：
+
+```text
+step = next_ready_step(steps)        # ① 取下一步
+if step is None: 完工 return         # ② 全走完才退出
+│
+├─ 守卫①：goal.completed_steps >= goal.max_steps ?
+│   ├─ 是 → pause_task("max_steps")，return   ← 该步不执行（executing 都不落）
+│   └─ 否 → 继续
+│
+▼（未触发守卫才走到这里）
+begin_step(...)                      # 落库 executing 坐标
+nudge = build_continue_nudge(step)   # 构造"执行步骤 {ref}: {short_name}…<completed> 收尾"提示词
+agent.invoke(nudge)                  # 让模型执行这一步
+text = _ai_text(resp)                # 取模型回复 → 判定 complete/continue
+```
+
+**三个常见误解（纠正）**：
+
+| 误解 | 事实 |
+|---|---|
+| "nudge 是截取工具" | ✗ nudge 只引导模型完成**当前一步**（结尾带 `<completed>` 标签），与守卫无关 |
+| "到上限后自动完成剩余任务" | ✗ 剩余步骤**不跑**，paused 留断点，用户 `--thread` 续跑 |
+| "完成步数 > 上限才停" | ✗ 是 `>=`：完成 12 步、上限 12，第 13 步开跑前就停 |
+
+**数字例子**：计划 20 步、`max_steps=12` → 跑完 s1~s12 后第 13 轮守卫①命中
+（`completed_steps=12 >= 12`）→ paused，s13~s20 一步不执行。
+
+**为什么守卫放在取 step 之后、begin_step 之前**：保证"超过上限的那一步不会开始执行"
+（连 executing 标记都不落），停得干净、恢复时从 s13 接着跑。
+
+**易混点**：`completed_steps` 只在 `complete_step`（verdict=complete 收步）时 +1。若模型一直回
+"continue"不收步，completed_steps 不涨，守卫①永不触发——那种"死循环不收尾"由**守卫③
+fallback_streak≥3 熔断**兜底。三守卫各管各的（见块 6 三守卫表）：
+
+| 守卫 | 触发条件 | 处理 |
+|---|---|---|
+| ① 步数上限 | `completed_steps >= max_steps` | paused（防无限跑、省 token） |
+| ② 空回复 | 连续空回复 ≥2 | paused |
+| ③ 判定熔断 | 连续不收尾 ≥3 | paused |
+
 ## ⚠️ 风险点
 
 1. 全程同步 invoke：lead_agent 是 sync compiled graph，勿改 async——改成 async 会和 CLI 同步主循环冲突。
@@ -511,3 +557,5 @@ stop_reason，用户 `--thread` 看一眼再决定续跑。这就是 R1 熔断�
 ---
 _2026-10-02 新建：M5 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
 _2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_
+
+_2026-10-06 追加：Q&A 4（守卫① vs nudge 的关系：取 step → 守卫 → begin_step → nudge → invoke 顺序 + 三误解纠正 + 数字例子）。_

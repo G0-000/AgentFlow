@@ -50,7 +50,7 @@
 | ① 先读原版 | `thread_state.py` / `lead_agent/agent.py`（1700 行·30+ 中间件）/ config·persistence | [M1-思考与规划](M1-思考与规划.md) |
 | ② 规划结构 | 目录照搬原版、文件砍 95%（config 36→4，persistence 60→6） | [M1-思考与规划](M1-思考与规划.md) · [目录结构](../02-架构设计/目录结构.md) |
 | ③ 实现 | 双包 workspace + 20 文件（config/models/persistence/agents/tools/cli） | [模块实现](../04-模块实现/) |
-| ④ 验证 | 配置✓ 建表✓ repo✓ agent构建✓ 真实对话🟡 | [验证记录](../05-验收体系/M1-验证记录.md) |
+| ④ 验证 | 配置✓ 建表✓ repo✓ agent构建✓ 真实对话✓ | [验证记录](../05-验收体系/M1-验证记录.md) |
 
 ## 3. 核心思想（M1 要带走的 3 条）
 

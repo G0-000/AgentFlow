@@ -84,7 +84,9 @@ def _ai_text(resp: dict) -> str:
 class GoalEngine:
     """长任务引擎：计划生成 → 拓扑排序 → 逐步执行 → 汇总报告（同步）。"""
 
-    def __init__(self, agent, model, goal_repo, service: GoalStateService | None = None):
+    def __init__(
+        self, agent, model, goal_repo, service: GoalStateService | None = None
+    ):
         """装配：agent=主 Agent（sync invoke），model=判定模型，goal_repo=落库。
 
         service 缺省时自动建一个包 goal_repo 的 GoalStateService——
@@ -161,9 +163,11 @@ class GoalEngine:
         while True:
             step = next_ready_step(steps)
             if step is None:
-                # 全部走完 → 汇总完工
+                # 全部走完 → 汇总完工 summary：摘要 概要
                 summary = self._build_summary(goal, steps)
-                self._service.complete_task(goal.goal_id, summary=summary, outcome="done")
+                self._service.complete_task(
+                    goal.goal_id, summary=summary, outcome="done"
+                )
                 print(f"\n[长任务完成] {summary}")
                 return
 

@@ -62,8 +62,8 @@
 
 ## 🎯 实用场景
 
-1. 沙箱内跑命令：查看系统状态、运行脚本、执行测试、批处理文件
-   （命令需在超时 30s 内完成，沙箱外路径访问会被拦截）。
+1. 终端命令：查看系统状态、运行脚本、执行测试、批处理文件
+   （默认超时 30s；命令以 AgentFlow 进程权限运行，访问宿主机路径不会被路径 API 拦截）。
 2. bash 子代理的唯一工具：`subagents/builtins/bash_agent.py:54` 白名单
    `tools=["terminal_run"]`（最小权限，不碰文件/知识库）。
 3. 验收点 4 可追溯性：放行/拦截都落 `sandbox_audit` 表，拦截有据可查。
@@ -206,7 +206,7 @@ _TERMINAL_DESCRIPTION = """\
 """
 ```
 
-**结构简析**：与 clarification/todo 工具同款——这段字符串注入 system prompt 给模型读，决定"何时调本工具、参数怎么填"。三行约定：① 用途（沙箱内跑 shell 命令）；② 触发场景（看状态/跑脚本/跑测试/批处理）；③ 约束（沙箱外路径被拦截、30s 超时）。
+**结构简析**：与 clarification/todo 工具同款——这段字符串注入 system prompt 给模型读，决定"何时调本工具、参数怎么填"。注意：源码这段说明声称沙箱外路径会拦截，但 `LocalSandbox.execute_command()` 实际只设 `cwd` 和超时；该说明与实现不符，shell 命令不经过文件 API 的路径校验。
 
 本块是模块级常量字符串，无函数签名，不展开参数表。
 
@@ -237,7 +237,7 @@ def terminal_run(command: str) -> str:
 
 | 参数 | 类型 | 默认值 | 含义 |
 |---|---|---|---|
-| `command` | `str` | 必填 | 要在沙箱内执行的 shell 命令；透传给 `sandbox.execute_command(command)`，需在 30s 内完成，访问沙箱外路径会抛 SandboxError |
+| `command` | `str` | 必填 | 透传给 `sandbox.execute_command(command)` 的 shell 字符串；超时默认 30s，但可访问 AgentFlow 进程有权限访问的宿主机资源 |
 
 **落库要点**：成功先 `_audit("terminal_run", command, allowed=True)` 再返回输出（LocalSandbox 已截断 500 字符详情）；捕获 `SandboxError` 后 `_audit(..., allowed=False, reason=str(exc))` 并返回"（沙箱拦截）{exc}"——catch 异常是硬要求，不 catch 会把异常炸进模型工具循环。
 

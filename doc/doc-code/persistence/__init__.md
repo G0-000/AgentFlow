@@ -2,7 +2,7 @@
 
 > **文件路径**: `backend/packages/harness/agentflow/persistence/__init__.py`
 > **目录位置**: persistence → __init__.py
-> **职责**: 持久化域包入口（SQLite 唯一属主）
+> **职责**: 业务数据持久化域包入口（checkpoint 与 trace 库另有存储组件）
 
 ## 📋 结构图
 

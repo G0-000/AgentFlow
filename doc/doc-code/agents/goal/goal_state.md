@@ -36,6 +36,23 @@
 
 **调用链（Grep 自 agentflow. 核实）**：
 
+> **读法**：这个括弧是**证据链标注**——下面的"谁调用它 / 它调用谁"不是推测，是拿 **Grep 命令**
+> 在 `backend/packages/harness/agentflow/` 源码里按关键词**搜出来核实**的事实（有文件、有行号）。
+>
+> | 部分 | 意思 |
+> |---|---|
+> | Grep | 命令行搜索工具（全局正则搜索），按关键词搜出"哪个文件第几行用到了它" |
+> | 自 agentflow. | 搜索范围 = 整个 agentflow 包（不是全盘，也不是只看本文件） |
+> | 核实 | 结论有源码依据、可复验，不是凭印象写 |
+>
+> **实际做法**：在 agentflow 包目录下执行——
+
+```bash
+grep -rn "goal_state" backend/packages/harness/agentflow/
+```
+
+> 按搜出的引用点写。doc-code 每个文件的调用链段都带这个标注，目的：**可追溯、防编造**。
+
 - **谁调用它**：`agents/goal/goal_loop.py` —— import `STEP_STATUS_COMPLETED/EXECUTING/PENDING`
   （_run 里步状态机）、`GoalRow`、`goal_row_from_row`（把 sqlite3.Row 转数据类）。
 - **它调用谁**：仅标准库 `sqlite3`（类型标注）+ `dataclasses`；不碰模型/其他业务模块。
@@ -335,3 +352,7 @@ create() ──→ pending ──→ planning ──→ planned ──→ execut
 ---
 _2026-10-02 新建：M5 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
 _2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_
+
+_2026-10-07 追加：调用链标注读法（Grep 自 agentflow. 核实 = 证据链标注，含三部分含义表）。_
+
+_2026-10-07 改：读法段命令示例改为独立 bash 代码块。_

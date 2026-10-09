@@ -26,7 +26,8 @@
 │   tools: 工具白名单（None = 继承父级全部）                │
 │   disallowed_tools: 黑名单（默认排除递归派发三件套）      │
 │   model: "inherit" = 用父模型（M4 仅支持此值）           │
-│   max_turns / timeout_seconds: 执行上限                   │
+│   max_turns: 已配置但当前未被 executor 消费               │
+│   timeout_seconds: run() 的超时参数                       │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -46,7 +47,8 @@
 
 1. 新增子代理：写一个 `X_AGENT_CONFIG = SubagentConfig(name="x", ...)`，再到 builtins/__init__.py 注册即可。
 2. 收紧能力面：给 `tools` 传白名单（如 bash 子代理只给 `["terminal_run"]`）。
-3. 限制失控：调小 `max_turns` / `timeout_seconds` 约束单个子代理任务。
+3. 缩短调用方等待时长：调小 `timeout_seconds`。超时是 best-effort，底层线程仍可能继续运行；`max_turns` 当前只是配置字段，
+   executor 未将其转换为 LangGraph recursion_limit，因此不能作为轮数保护。
 
 ## 📊 顺序执行链流程图（配置被消费时）
 
@@ -66,7 +68,7 @@ _filter_tools(tools, cfg.tools, cfg.disallowed_tools)  ← 先白名单裁剪，
 create_agent(model, tools, system_prompt=cfg.system_prompt)  ← 用 cfg.system_prompt 构建子代理
 │
 ▼
-子代理按 cfg.max_turns / cfg.timeout_seconds 上限执行
+子代理 run() 使用 cfg.timeout_seconds 等待上限；cfg.max_turns 当前没有执行效果
 ```
 
 **Mermaid 版（GitHub / 飞书渲染；VSCode 需装插件）**：
@@ -77,7 +79,7 @@ flowchart TD
     B --> C["构造 SubagentExecutor 读配置"]
     C --> D["filter_tools 白名单裁剪再黑名单剔除"]
     D --> E["create_agent 注入 system_prompt"]
-    E --> F["按 max_turns 与 timeout 上限执行"]
+    E --> F["run() 按 timeout_seconds 等待；max_turns 未消费"]
 ```
 
 ## 🧩 代码解析（成块对照 config.py）
@@ -112,7 +114,7 @@ class SubagentConfig:
         tools: 工具白名单；None = 继承父级全部工具
         disallowed_tools: 工具黑名单（始终排除）
         model: "inherit" = 用父模型（M4 仅支持此值）
-        max_turns: 模型最大轮数（防失控）
+        max_turns: 预留字段；当前执行器未消费
         timeout_seconds: 单任务最长执行秒数
     """
 ```
@@ -150,10 +152,10 @@ class SubagentConfig:
 | `tools` | `list[str] \| None` | `None` | 工具白名单；`None` = 继承父级全部工具（白名单不裁剪）；传 list = 只留名单内（bash 子代理只给 `["terminal_run"]`） |
 | `disallowed_tools` | `list[str] \| None` | `["subagent", "dispatch_subagents", "ask_clarification"]` | 工具黑名单，始终剔除；防子代理递归派发 + 防子代理反问用户（它面前没有用户） |
 | `model` | `str` | `"inherit"` | M4 唯一支持值，复用父 Agent 模型；多模型（各自配模型）留到 M6 |
-| `max_turns` | `int` | `100` | 模型最大轮数（防失控）；bash 子代理在自己文件里改成 50 |
+| `max_turns` | `int` | `100` | 当前未被 executor 使用，不构成模型轮数限制；bash 子代理设为 50 也不会改变执行行为 |
 | `timeout_seconds` | `int` | `120` | 单任务最长执行秒数，`run()` 的默认超时 |
 
-**落库要点**：黑名单默认值用 `field(default_factory=lambda: [...])`——每个实例拿到一份独立新列表，不会被别的子代理改到。
+**落库要点**：黑名单默认值用 `field(default_factory=lambda: [...])`——每个实例拿到一份独立新列表，不会被别的子代理改到。`max_turns` 虽定义在配置中，但 `SubagentExecutor._build_agent()` 没有设置 `recursion_limit`，`run()` 也未传入执行限制；当前只有 `timeout_seconds` 生效。
 
 ## ❓ Q&A / 知识点
 

@@ -48,24 +48,20 @@
 
 ## 💡 设计思想
 
-1. **MCP 工具是"可选项"**：连接失败 / 配置为空一律返回 `[]`，绝不阻断主 Agent 装配
-   ——CLI 没配 MCP 服务器时照常对话。
-2. **asyncio.run 同步桥接**：langchain-mcp-adapters 是 async API，而 agentflow 装配链是
-   同步的；CLI 单线程场景下用 `asyncio.run` 桥一层即可，无事件循环冲突。
+1. **MCP 工具是可选组件**：显式调用时，连接失败 / 配置为空返回 `[]`；当前 CLI/主 Agent 没有调用本函数。
+2. **asyncio.run 同步桥接**：适用于没有运行中事件循环的同步调用方；若从 async 服务调用，会因已有事件循环而失败。
 3. **懒加载**：只有调 `load_mcp_tools` 时才建客户端（不常驻连接）。
 
 ## 🎯 实用场景
 
-1. **Agent 装配**：主 agent 构建时调 `load_mcp_tools()`，把返回的工具列表
-   合并进 agent 的工具集（工具注册表挂载点在 agent 装配处，不在本文件）。
+1. **显式加载**：调用 `load_mcp_tools()` 可单独发现工具；要让 Agent 使用，还需调用方把返回值并入 `make_lead_agent(..., tools=...)`。当前主流程尚未这样做。
 2. **无 MCP 环境开发**：config.yaml 不配 mcp_servers，函数直接 `return []`，
    本地开发零依赖。
-3. **MCP 服务器挂了**：子进程起不来 / 远程 URL 不通，`except Exception` 兜底
-   `return []`，主 agent 照常启动。
+3. **MCP 服务器挂了**：子进程起不来 / 远程 URL 不通，函数记录 warning 并返回 `[]`；若未来接入主流程，调用方可以选择降级继续启动。
 
 ## 📊 顺序执行链流程图
 
-**调用方**：`load_mcp_tools` ← agent 装配处（构建工具集时）；
+**调用方**：目前由测试直接调用；M6 当前没有生产代码调用方。后续接入时由 agent 装配处调用；
 内部依赖 `load_mcp_servers` ← `config/mcp_config.py`、`build_servers_config` ← `mcp/client.py`、
 `MultiServerMCPClient` ← `langchain_mcp_adapters.client`。
 
@@ -74,7 +70,7 @@ agent 装配（同步链）
 │
 ▼
 load_mcp_tools(cfg=None)
-  cfg = cfg or load_config()
+  cfg = cfg or load_config()                 （目前仅保留接口形状）
   servers = load_mcp_servers({"mcp_servers": _raw_mcp_servers(cfg)})
   │
   ├─ not servers?        → return []   ← 无配置直接空
@@ -99,7 +95,7 @@ load_mcp_tools(cfg=None)
 
 ```mermaid
 flowchart TD
-    A["agent 装配调 load_mcp_tools"] --> B["cfg 缺省则 load_config"]
+    A["测试/显式调用 load_mcp_tools"] --> B["cfg 缺省则 load_config（当前不用于定位 MCP 文件）"]
     B --> C["_raw_mcp_servers 读 config.yaml mcp_servers 段"]
     C --> D["load_mcp_servers 洗成 McpServerConfig 列表"]
     D --> E{"servers 为空？"}
@@ -285,9 +281,9 @@ docstring 明确"未来 AppConfig 加字段后直接替换"。
    先确认目标版本支持 `__aexit__`，否则连接不清理。
 2. **asyncio.run 约束**：只能在无运行中事件循环的同步上下文调；将来搬进 web/async 服务会炸。
 3. **静默降级**：`except Exception` 吞所有异常返回 `[]`，MCP 工具没加载时只看 warning 日志。
-4. **_raw_mcp_servers 重复读 yaml**：M6 过渡实现直接再读一遍 config.yaml，与 AppConfig 可能不同步；
+4. **`cfg` 参数未生效**：`_raw_mcp_servers(cfg)` 当前不读取 `cfg` 内容；MCP 列表从 `AGENTFLOW_CONFIG_PATH` 或 cwd 下的 `config.yaml` 获取。
+5. **_raw_mcp_servers 重复读 yaml**：M6 过渡实现直接再读一遍 config.yaml，与 AppConfig 可能不同步；
    将来 AppConfig 加 mcp_servers 字段后记得替换实现。
-5. **AGENTFLOW_CONFIG_PATH 环境变量**：_raw_mcp_servers 认这个变量定位配置，别和主配置路径不一致。
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_

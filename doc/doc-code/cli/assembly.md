@@ -1,10 +1,13 @@
 # cli/assembly.md — main() 装配段详解（M1→M5）
 
-> 本文件由 cli/main.md 按功能拆分（2026-10-03）：装配域详解。主流程/入口/知识点/Q&A 见 [main.md](main.md)。
+> 本文件由 cli/main.md 按功能拆分（2026-10-03）：装配域详解。主流程/入口/知识点/Q&A 见 [main.md](main.md)
+>
+> assembly  装配；组装
 
 ## 📑 目录
 
 - [块 4：main() 装配段（①-⑫）](#块-4main-装配段-①-⑫)
+- [块 4·分流：automation 子命令族（main.py:28-31）](#块-4分流automation-子命令族mainpy28-31)
 - [块 4-M4：M4 沙箱/审计/派发装配段](#块-4-m4m4-沙箱审计派发装配段)
 - [块 6-M5：M5 定时调度 + 长任务装配](#块-6-m5m5-定时调度--长任务装配)
 - [⚠️ 风险点](#️-风险点)
@@ -127,7 +130,24 @@ def main() -> None:
     print("输入 exit 退出\n")
 ```
 
-**结构简析**：装配段只做一件事——**把零件造齐、接好，不干业务**。`main()` 本身无参（`def main() -> None:`），全部输入来自 `_parse_args()` 返回的 `args`。按数据依赖顺序走：① `_parse_args()` 拿命令行 → ② `load_dotenv` 加载项目根 `.env`（密钥）→ **M5 分流**：`args.command=="automation"` 直接转 `_handle_automation_command` 并 return（不进 REPL）→ ③ `load_config` 读 `config.yaml`（缺 API key 则打印提示退出）→ ④⑤ `init_db` + `create_sqlite_checkpointer`（持久化底座）→ ⑥ `get_available_tools`（工具目录）→ **M4 沙箱/审计/派发装配**（详见块 4-M4）→ ⑦ 中间件 `[TitleMiddleware, ThreadDataMiddleware]` → ⑧ `create_chat_model` 建模型 + **M3 记忆/知识装配**（`MemoryFacade`/`KnowledgeService`/`configure_knowledge_service` 挂 knowledge 工具）→ ⑨ `make_lead_agent` 编译图（系统提示注入 `memories.recall(limit=10)` + `build_skills_prompt()`）→ ⑩⑪ `SessionRepository(conn)` + 确定 `thread_id = args.thread or _generate_thread_id()` 并 `sessions.create(thread_id)` 幂等建行 → **M5 定时/长任务装配**（详见块 6-M5）→ ⑫ 打印启动信息（模型/工具/记忆/知识/沙箱/子代理/审计/会话/定时/数据）。
+**结构简析**：装配段只做一件事——**把零件造齐、接好，不干业务**。`main()` 本身无参
+（`def main() -> None:`），全部输入来自 `_parse_args()` 返回的 `args`。按数据依赖顺序走，共 12 步：
+
+| 步骤 | 做什么 | 要点 |
+|---|---|---|
+| ① `_parse_args()` | 解析命令行 | `--thread` 复用会话 / `--goal` 长任务入口 / `automation` 子命令族 |
+| ② `load_dotenv` | 加载项目根 `.env`（密钥） | 必须在 `load_config` 之前（`config.yaml` 里 `${API_KEY}` 占位后续展开） |
+| **M5 分流** | `args.command=="automation"` → `_handle_automation_command` + `return` | 轻量装配，不进 REPL（详见块 4·分流） |
+| ③ `load_config` | 读 `config.yaml` | 缺 API key → 打印提示退出 |
+| ④⑤ `init_db` + `create_sqlite_checkpointer` | 持久化底座 | 建表（业务）+ 图状态检查点（LangGraph 自管） |
+| ⑥ `get_available_tools` | 工具目录 | 9 个工具 |
+| **M4** | 沙箱/审计/派发装配 | `set_sandbox_provider` + 审计 repo + `configure_dispatch_service`（详见块 4-M4） |
+| ⑦ 中间件 | `[TitleMiddleware, ThreadDataMiddleware]` | 自动标题 + 线程数据目录 |
+| ⑧ 模型 + M3 记忆/知识 | `create_chat_model` + `MemoryFacade`/`KnowledgeService`/`configure_knowledge_service` | 建模型；记忆/知识挂 knowledge 工具 |
+| ⑨ `make_lead_agent` | 编译图 | 系统提示注入 `memories.recall(limit=10)` + `build_skills_prompt()` |
+| ⑩⑪ `SessionRepository(conn)` + thread_id | 会话记录 + 确定复用/新建 | `thread_id = args.thread or _generate_thread_id()`；`sessions.create(thread_id)` 幂等建行 |
+| **M5** | 定时/长任务装配 | `AutomationScheduler` + `GoalEngine`（详见块 6-M5） |
+| ⑫ 打印启动信息 | 模型/工具/记忆/知识/沙箱/子代理/审计/会话/定时/数据 | 一眼看清装配了什么 |
 
 **落库要点/补充**：
 
@@ -136,7 +156,65 @@ def main() -> None:
 - **M3 为什么用 db_path 而非 conn**：knowledge/memory 工具在 LangGraph 后台线程跑 SQL，SQLite 连接不能跨线程共用——repo 按线程建连接（P-018）；所以 `MemoryRepository(db_path=…)`/`KnowledgeRepository(db_path=…)`/`GoalRepository(db_path=…)`/`AutomationRepository(db_path=…)` 都传路径，唯独 `SessionRepository(conn)` 用主线程连接（主线程专用）。
 - 缺 API key 早退：`if cfg.models is None or not cfg.models.chat.api_key: print(...); return`——不建库不建模型，用户能立刻看到缺配置提示。
 
+### 块 4·分流：automation 子命令族（main.py:28-31）
 
+这三行是 M5 加的第一道**分流闸**——把"管理定时任务"的命令从"进 REPL 对话"的完整装配里切出去。
+
+```text
+用户敲的命令                     args.command 的值        main() 走哪条路
+─────────────────────────────────────────────────────────────────────
+uv run agentflow               （没有该属性）            → 继续重装配 → 进 REPL
+uv run agentflow automation    "automation"             → 轻量处理 → return（直接退出）
+```
+
+**逐行拆**：
+
+| 代码 | 干什么 | 为什么这么写 |
+|---|---|---|
+| `getattr(args, "command", None)` | **安全**读 `args.command` | argparse 的 `dest="command"` **只在敲了子命令时才生成该属性**；普通启动时 `args` 上没有 command，直接 `args.command` 会抛 `AttributeError`——getattr 带默认值 None 兜底 |
+| `== "automation"` | 判断是不是 automation 子命令族 | `_parse_args()` 里 `sub.add_parser("automation")` 注册的就是该值；命中 = 用户要 list/create/pause/resume/delete |
+| `_handle_automation_command(args)` | 轻量处理 | 只做 `default_db_path()` + `init_db()` + `AutomationRepository(db_path=...)`，再按 `args.auto_action` 分发 5 个子动作——全部是纯 SQLite 读写，不碰模型 |
+| `return` | 立即退出 main() | 跳过后面 ③~⑫ 全部重装配（config/API key/工具/沙箱/模型/agent/checkpointer/REPL 循环） |
+
+**为什么能"轻量装配"**：automation 命令只操作数据库（automations / automation_runs 两张表），
+不需要模型、API key、agent、沙箱——所以它们也不该被加载。两个直接好处：
+
+1. **没配 API key 也能用**：`agentflow automation list` 照常工作（缺 key 只拦对话，不拦管理命令）；
+2. **省启动时间**：不白跑一遍重装配。
+
+**放置位置也有讲究**：在 ② `load_dotenv` 之后、③ `load_config` 之前——只做完"解析参数 + 读 .env"
+两步最轻的准备就分流，连 config.yaml 都不读。
+
+**对比**：`--goal` / `--thread` 不走这条路——它们要进 REPL/长任务，必须完整装配；
+automation 是"纯管理命令"，执行完打印结果直接退出，不进对话循环。
+
+**实际用法示例**（在 `backend/packages/harness` 目录下执行；`automation` 不是独立命令，
+必须通过 `agentflow` 入口进入，由 argparse 解析出 `args.command == "automation"`）：
+
+```bash
+uv run agentflow automation list                                          # 列出所有定时任务
+uv run agentflow automation create --name "检查" \
+    --prompt "帮我检查一下待办" --cron "*/1 * * * *"                      # 每分钟触发
+uv run agentflow automation create --name "日报" \
+    --prompt "写今日日报" --schedule "每天9点"                             # 自然语言调度（归一化）
+uv run agentflow automation create --name "一次性提醒" --prompt "提醒我" \
+    --once --at "2026-10-08T09:00:00"                                     # 一次性任务
+uv run agentflow automation pause t_xxxx                                  # 暂停（status→paused）
+uv run agentflow automation resume t_xxxx                                 # 恢复（status→active）
+uv run agentflow automation delete t_xxxx                                 # 删除（runs 历史保留）
+```
+
+命令结构拆解：
+
+```text
+uv run agentflow        ← 程序入口（可执行文件 agentflow，pyproject.toml 注册）
+          automation    ← argparse 一级子命令（sub.add_parser("automation")）
+                  list  ← 二级子动作（auto_action：list/create/pause/resume/delete）
+```
+
+单独敲 `automation` 会报 `command not found`——必须带 `agentflow` 前缀。且这些命令
+**不需要 API key**：没配 `.env` 时 `uv run agentflow automation list` 也能正常执行
+（返回"（无定时任务）"或任务列表）。
 
 ### 块 4-M4：M4 沙箱/审计/派发装配段（main 内部片段，main.py:177-192）
 
@@ -222,3 +300,9 @@ def main() -> None:
 
 ---
 _2026-10-03 新建：从 cli/main.md 按功能拆分（装配域）。_
+
+_2026-10-07 追加：块 4·分流小节（automation 子命令族逐行拆解 + 轻量装配原因 + 放置位置说明）。_
+
+_2026-10-07 追加：块 4·分流 实际用法示例（list/create/pause/resume/delete 命令 + 结构拆解）。_
+
+_2026-10-07 改：块 4 结构简析由长箭头段改为 12 步分条表格（每步一行：步骤/做什么/要点）。_

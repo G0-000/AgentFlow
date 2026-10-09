@@ -24,7 +24,7 @@
 │   description: 复杂多步骤任务时派它                        │
 │   system_prompt: 自主完成 + 清晰可核验结论                │
 │   tools=None（继承父级全部工具）                          │
-│   model="inherit" / max_turns=100 / timeout=120          │
+│   model="inherit" / max_turns=100（未消费） / timeout=120 │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -139,7 +139,7 @@ GENERAL_PURPOSE_CONFIG = SubagentConfig(
 | `system_prompt` | `str` | 必填 | `<行为准则>`+`<输出格式>`：自主闭环、可核验结论、**禁止澄清**、四段式输出（摘要/发现/产出/未完成项） |
 | `tools` | `list[str] \| None` | `None` | 此处显式传 `None` = 继承父级全部工具，executor 再按 disallowed 剔三件套 |
 | `model` | `str` | `"inherit"` | 此处显式 `"inherit"`，复用父模型 |
-| `max_turns` | `int` | `100` | 此处显式 100，比 bash 子代理（50）宽松——复杂任务轮次多 |
+| `max_turns` | `int` | `100` | 当前 executor 未消费此字段，不构成轮数上限 |
 | `timeout_seconds` | `int` | `120` | 此处显式 120，单任务上限 |
 
 **落库要点**：`disallowed_tools` 未在此列出，走 config 默认 `["subagent","dispatch_subagents","ask_clarification"]`；system_prompt 里"不要向用户发起澄清提问"与该黑名单排 `ask_clarification` 是双重保险。

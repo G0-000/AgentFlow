@@ -55,7 +55,8 @@
 1. **recorder 装配**：`recorder.py:__init__` 收到 store 后调 `create_tables()` 建表。
 2. **写链路**：对话开始 `insert_run`，各 span 点 `insert_event`（由 recorder fire-and-forget 触发）。
 3. **查链路**：`get_run(run_id)` 取根记录 + `query_events(run_id)` 取全部 span，按 started_at 升序拼成完整时序。
-4. **测试注入**：传 `sqlite_path=":memory:"` 即可内存库断言链路完整。
+4. **测试注入**：可单独测试 store 时传 `sqlite_path=":memory:"`；但 recorder 会在新线程写入，
+   而线程本地连接会为该线程创建另一份内存库。跨线程 recorder 测试应使用临时磁盘文件。
 
 ## 📊 顺序执行链流程图
 

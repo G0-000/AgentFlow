@@ -15,7 +15,7 @@
 ## 📋 结构图
 
 ```text
-tests/test_trace.py（8 用例 → 验收点 4：可观测）
+tests/test_trace.py（7 个测试函数 → 验收点 4：可观测）
 ├── 建表（1）
 │   └── test_create_tables_idempotent           建表两次幂等
 ├── store 同步链路（4）

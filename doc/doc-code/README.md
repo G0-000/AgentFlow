@@ -1,26 +1,24 @@
 <!-- ============================================================
   AgentFlow doc · doc-code 总览（代码地图 + M1 文件总目录）
-  更新时间: 2026-10-01（M4 追加 subagents/sandbox 两包 + 新工具）
+  更新时间: 2026-10-05（更新至 M6；按当前源码复核）
   关联: 代码 /Users/main/AgentFlow/backend/packages/harness/agentflow/
   用途: 与代码目录一一对应的"设计说明 + 问题总结"文档
-  维护约定: M1 文件总目录随里程碑推进持续更新（每完成一个 M，追加其文件）
+  维护约定: 本页是当前代码索引；历史里程碑文档保留当时记录，具体实现以当前源码与文件级说明为准
 ================================================================ -->
 # doc-code —— 代码结构文档（与 agentflow/ 目录一一对应）
 
-> 看代码前先读这里。每个子目录对应一个代码包（config/models/persistence/agents/tools/cli/subagents/sandbox），
-> 每份域文档 = **①文件清单 ②设计说明 ③你问过的问题总结（Q&A） ④原版对照**。
-> **本页 = 总目录**：一页看清全部文件"为什么这么设计"（M1-M4 65 个 + M5 长任务/定时 6 个 + M6 扩展治理 12 个）。
-> **tests/（第 3 节）**：5 个测试文件的用例级文档（M4 新增，对应验收点 1-4 + 回归）。
+> 先用本页找到模块，再点进文件说明。历史记录可能沿用当时的阶段称呼；当前行为以源码为准。
+> 当前核心包有 **104 个 Python 文件**。测试文档只覆盖明确列出的测试文件，不等同于全量测试清单。
 
-## 1. 代码全景（agentflow/ 65 文件 · M4）
+## 1. 当前代码全景（agentflow/ 104 个 Python 文件）
 
 ```
 backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflow）
 ├── __init__.py                                ← 包入口（__version__）
-├── config/       5 文件  配置域（yaml → 类型化对象）
+├── config/       6 文件  配置域（yaml → 类型化对象，含 MCP 配置）
 ├── models/       3 文件  模型域（配置 → ChatOpenAI）
-├── persistence/  8 文件  持久化域（SQLite 唯一属主，含 sandbox_audit 审计表）
-├── agents/       11 文件  Agent 域（状态/检查点/主Agent/提示词/中间件）
+├── persistence/ 12 文件  业务表 repo 与 schema（M6 trace 库另由 observability/store.py 管理）
+├── agents/       16 文件  Agent 域（状态/检查点/主Agent/中间件/Goal）
 ├── tools/        13 文件  工具域（分层/收集/结果存取 + 9 内置工具）
 ├── knowledge/    6 文件  知识域（chunker 切分 → embedding 向量化 → service 检索）
 ├── memory/       3 文件  记忆域（consolidate 合并 → facade 门面）
@@ -28,18 +26,21 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 ├── subagents/    7 文件  子代理域（M4：config/registry/executor + builtins）
 ├── sandbox/      6 文件  沙箱域（M4：ABC/Provider/Noop/Local 目录隔离）
 ├── mcp/          3 文件  MCP 外部服务器接入（M6：client + tools）
-├── community/web 5 文件  第三方搜索集成（M6：provider/registry/ddgs）
+├── community/    6 文件  第三方集成包（M6 当前仅有 web 搜索 provider）
 ├── authz/        2 文件  鉴权守卫（M6：JWT 401 语义）
-├── observability 3 文件  可观测（M6：tables/store/recorder）
+├── observability 4 文件  可观测（M6：独立 obs.db 的 tables/store/recorder）
 ├── webui/        3 文件  WebUI 鉴权（M6：auth/middleware）
-└── cli/          6 文档  命令行入口（main 总览 + 4 功能子文档）
+├── plans/         4 文件  计划与 Goal 服务
+├── scheduler/     3 文件  Cron 解析与定时循环
+├── collab/        2 文件  M5 执行生命周期
+└── cli/           2 文件  命令行入口（另有 4 篇功能说明文档）
 ```
 
-## 2. M1 文件总目录（逐文件设计说明 · 后续里程碑在此持续追加）
+## 2. 历史文件设计索引（M1 起逐步追加，非当前源码清单）
 
 > 每文件一行：**职责 → 为什么这样设计（设计动机） → 设计需求 → 涉及问题/教训**。
 
-### config/ —— 配置域（5 文件）
+### config/ —— 配置域（6 文件）
 
 | 文件 | 职责 | 为什么这样设计 | 设计需求 | 涉及问题 |
 |---|---|---|---|---|
@@ -57,20 +58,20 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 | `factory.py` | `create_chat_model()` 模型工厂 | 工厂模式：配置 → 模型实例，调用方不关心具体供应商 | provider 白名单分发；默认 openai-compatible | **Q1-3**（为什么全走 OpenAI 兼容） |
 | `patched_openai.py` | 供应商适配层（M1 直接返回标准 ChatOpenAI） | **扩展点预留**：不同供应商 extra body/参数别名/流式格式有差异，需要收敛层（原版同款设计） | M6 多供应商时在此补 patch | — |
 
-### persistence/ —— 持久化域（8 文件 · SQLite 唯一属主）
+### persistence/ —— 持久化域（12 文件 · 业务数据访问）
 
 | 文件 | 职责 | 为什么这样设计 | 设计需求 | 涉及问题 |
 |---|---|---|---|---|
 | `__init__.py` | 包入口 | 同上 | 无业务逻辑 | — |
 | `db.py` | `connect()` 连接管理 | 连接集中管理：自动建目录 + row_factory + WAL + 外键 | 其他模块不直接连 DB（铁律②） | **Q1-3**（persistence 分层） |
-| `schema.py` | `SCHEMA_SQL` 表定义（唯一定义处） | 表结构集中一处（对齐原版 data_layout"布局先行"）；sessions/session_messages 两张表 | M7 后按原版增表 | — |
+| `schema.py` | `SCHEMA_SQL` 业务表定义 | 表结构集中一处；当前含会话、记忆、知识、沙箱审计、goal 与 automation 表 | trace 表由 observability 独立库维护 | — |
 | `bootstrap.py` | `init_db()` 建表入口 | 启动时幂等建表（CREATE IF NOT EXISTS） | CLI/测试统一入口 | — |
 | `repositories.py` | `BaseRepository` 抽象基类 | 基类统一 `_execute`（SQL+commit），子类只实现 4 方法 | 表多时避免重复 SQL | **P-008**（insert→create 命名对齐） |
 | `session_repositories.py` | `SessionRepository`（会话+消息 repo） | 业务记录与图状态（checkpoint）**两套存储**分开 | add_message/touch 供 CLI 与 M7 UI 用 | **Q3**（为什么先存 user 再跑图） |
 | `sandbox_audit_repositories.py` | `SandboxAuditRepository`（沙箱审计 repo） | **M4 新增**：每次沙箱操作（放行/拦截）落库，可追溯 | record/query/count + BaseRepository 契约 | — |
 | `timestamps.py` | `now_utc_iso()` 统一时间戳 | 全库统一 UTC ISO 字符串，**避免各模块自己格式化**（时区/格式漂移） | 时间列统一口径 | — |
 
-### agents/ —— Agent 域（8 文件 · 核心）
+### agents/ —— Agent 域（16 文件 · 核心）
 
 | 文件 | 职责 | 为什么这样设计 | 设计需求 | 涉及问题 |
 |---|---|---|---|---|
@@ -84,7 +85,7 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 | `middlewares/title_middleware.py` | 首条消息 → 标题 → state[title] | **M2 新增**：照原版标题中间件；M2 规则截断（防 P-015 限流） | 幂等只生成一次 | **P-017**（middleware 单数） |
 | `middlewares/thread_data_middleware.py` | 建线程数据目录 | **M2 新增**：照原版每个会话独立工作区 | 目录结构对齐原版命名 | — |
 
-### tools/ —— 工具域（2 文件 · M1 空壳）
+### tools/ —— 工具域（13 文件；下方表格是早期设计记录）
 
 | 文件 | 职责 | 为什么这样设计 | 设计需求 | 涉及问题 |
 |---|---|---|---|---|
@@ -114,25 +115,25 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 
 > 目录结构与 `agentflow/` 代码目录一一对应；域级问答看下方"文档导航"，文件级细节看这里。
 
-### config/（5）
-- [app_config.py](config/app_config.md) · [model_config.py](config/model_config.md) · [models_yaml.py](config/models_yaml.md) · [paths.py](config/paths.md) · [__init__.py](config/__init__.md)
+### config/（6）
+- [app_config.py](config/app_config.md) · [model_config.py](config/model_config.md) · [models_yaml.py](config/models_yaml.md) · [paths.py](config/paths.md) · [mcp_config.py](config/mcp_config.md) · [__init__.py](config/__init__.md)
 
 ### models/（3）
 - [factory.py](models/factory.md) · [patched_openai.py](models/patched_openai.md) · [__init__.py](models/__init__.md)
 
-### persistence/（7）
-- [bootstrap.py](persistence/bootstrap.md) · [db.py](persistence/db.md) · [schema.py](persistence/schema.md) · [repositories.py](persistence/repositories.md) · [session_repositories.py](persistence/session_repositories.md) · [timestamps.py](persistence/timestamps.md) · [__init__.py](persistence/__init__.md)
+### persistence/（12 个源码文件；文件说明未全覆盖）
+- [bootstrap.py](persistence/bootstrap.md) · [db.py](persistence/db.md) · [schema.py](persistence/schema.md) · [repositories.py](persistence/repositories.md) · [session_repositories.py](persistence/session_repositories.md) · [knowledge_repositories.py](persistence/knowledge_repositories.md) · [memory_repositories.py](persistence/memory_repositories.md) · [goal_repositories.py](persistence/goal_repositories.md) · [automation_repositories.py](persistence/automation_repositories.md) · [sandbox_audit_repositories.py](persistence/sandbox_audit_repositories.md) · [timestamps.py](persistence/timestamps.md) · [__init__.py](persistence/__init__.md)
 
-### agents/（11）
+### agents/（16）
 - [thread_state.py](agents/thread_state.md)
 - lead_agent/: [agent.py](agents/lead_agent/agent.md) · [prompt.py](agents/lead_agent/prompt.md) · [__init__.py](agents/lead_agent/__init__.md)
 - middlewares/: [title_middleware.py](agents/middlewares/title_middleware.md) · [thread_data_middleware.py](agents/middlewares/thread_data_middleware.md) · [__init__.py](agents/middlewares/__init__.md)
 - checkpointer/: [provider.py](agents/checkpointer/provider.md) · [async_provider.py](agents/checkpointer/async_provider.md) · [__init__.py](agents/checkpointer/__init__.md)
 - [__init__.py](agents/__init__.md)
 
-### tools/（10）
+### tools/（13）
 - [tool_catalog.py](tools/tool_catalog.md) · [tools.py](tools/tools.md) · [tool_result_store.py](tools/tool_result_store.md) · [__init__.py](tools/__init__.md)
-- builtins/: [clarification_tool.py](tools/builtins/clarification_tool.md) · [todo_tool.py](tools/builtins/todo_tool.md) · [knowledge_tool.py](tools/builtins/knowledge_tool.md) · [plan_tool.py](tools/builtins/plan_tool.md) · [fetch_url_tool.py](tools/builtins/fetch_url_tool.md) · [__init__.py](tools/builtins/__init__.md)
+- builtins/: [clarification_tool.py](tools/builtins/clarification_tool.md) · [todo_tool.py](tools/builtins/todo_tool.md) · [knowledge_tool.py](tools/builtins/knowledge_tool.md) · [plan_tool.py](tools/builtins/plan_tool.md) · [fetch_url_tool.py](tools/builtins/fetch_url_tool.md) · [terminal_tool.py](tools/builtins/terminal_tool.md) · [file_tools.py](tools/builtins/file_tools.md) · [dispatch_tool.py](tools/builtins/dispatch_tool.md) · [__init__.py](tools/builtins/__init__.md)
 
 ### cli/（6）
 - [main.py](cli/main.md)（总览：入口/结构图/知识点/Q&A） · [__init__.py](cli/__init__.md)
@@ -141,17 +142,18 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 ### mcp/（M6，3 文件）
 - [client.py](mcp/client.md)（build_server_params：stdio/sse/http 参数构建） · [tools.py](mcp/tools.md)（load_mcp_tools 同步桥接）
 
-### community/web/（M6，5 文件）
+### community/web/（M6，5 个源码文件）
 - [provider.py](community/web/provider.md)（WebSearchProvider ABC） · [registry.py](community/web/registry.md)（注册/解析） · providers/: [ddgs.py](community/web/providers/ddgs.md)（免费搜索）
+- 包入口说明：[community/__init__.md](community/__init__.md)
 
 ### authz/（M6，2 文件）
 - [http_guard.py](authz/http_guard.md)（AuthRequiredError 401 语义守卫）
 
-### observability/（M6，3 文件）
-- [tables.py](observability/tables.md)（表名常量） · [store.py](observability/store.md)（ObsTraceStore） · [recorder.py](observability/recorder.md)（fire-and-forget）
+### observability/（M6，4 文件）
+- [tables.py](observability/tables.md)（表名常量） · [store.py](observability/store.md)（ObsTraceStore） · [recorder.py](observability/recorder.md)（fire-and-forget） · [__init__.py](observability/__init__.md)
 
 ### webui/（M6，3 文件）
-- [auth.py](webui/auth.md)（PBKDF2 + JWT） · [middleware.py](webui/middleware.md)（WebuiAuthGuard 白名单+401）
+- [auth.py](webui/auth.md)（PBKDF2 + JWT） · [middleware.py](webui/middleware.md)（WebuiAuthGuard 白名单+401） · [__init__.py](webui/__init__.md)
 
 ### knowledge/（6）
 - [chunker.py](knowledge/chunker.md) · [service.py](knowledge/service.md) · [__init__.py](knowledge/__init__.md)
@@ -159,6 +161,15 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 
 ### memory/（3）
 - [consolidate.py](memory/consolidate.md) · [facade.py](memory/facade.md) · [__init__.py](memory/__init__.md)
+
+### plans/（4）
+- [types.py](plans/types.md) · [service.py](plans/service.md) · [resolver.py](plans/resolver.md) · [__init__.py](plans/__init__.md)
+
+### scheduler/（3）
+- [cron.py](scheduler/cron.md) · [loop.py](scheduler/loop.md) · [__init__.py](scheduler/__init__.md)
+
+### collab/（2）
+- [execution_lifecycle.py](collab/execution_lifecycle.md) · [__init__.py](collab/__init__.md)
 
 ### skills/（2）
 - [loader.py](skills/loader.md) · [__init__.py](skills/__init__.md)
@@ -170,12 +181,13 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 ### sandbox/（6 · M4）
 - [sandbox.py](sandbox/sandbox.md) · [sandbox_provider.py](sandbox/sandbox_provider.md) · [noop.py](sandbox/noop.md) · [local.py](sandbox/local.md) · [exceptions.py](sandbox/exceptions.md) · [__init__.py](sandbox/__init__.md)
 
-### tests/（5 · M4 测试文档，对应用例级验收）
+### tests/（9 份说明；测试目录共有 21 个测试文件）
 - [test_subagent_registry.py](tests/test_subagent_registry.md)（5 用例 → 验收点 1 注册）
 - [test_subagent_parallel.py](tests/test_subagent_parallel.md)（3 用例 → 验收点 2/3 并行 + 按序）
 - [test_sandbox_guard.py](tests/test_sandbox_guard.md)（7 用例 → 验收点 4 隔离 + 审计）
 - [test_subagent_retry.py](tests/test_subagent_retry.md)（4 用例 → 重试语义）
 - [test_tool_catalog.py](tests/test_tool_catalog.md)（6 用例 → M2 工具目录 + M4 增量）
+- [test_mcp_client.py](tests/test_mcp_client.md) · [test_community_search.py](tests/test_community_search.md) · [test_auth.py](tests/test_auth.md) · [test_trace.py](tests/test_trace.md)（M6 组件测试；不是主 Agent 端到端接线测试）
 
 ### 根（1）
 - [__init__.py](__init__.md)
@@ -193,22 +205,22 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 | [tools/设计说明.md](tools/设计说明.md) | `agentflow/tools/` | 为什么 M1 没有工具？ |
 | [cli/设计说明.md](cli/设计说明.md) | `agentflow/cli/` | 一条对话从输入到回复怎么走完？ |
 
-## 4. 全项目三条铁律（任何代码都要遵守）
+## 5. 当前边界（读源码时牢记）
 
 ```
-① 核心层不反向 import 应用层（agentflow/* 不得引用 app/*）——M7 才有应用层
-② SQLite 唯一属主 = persistence/（其他模块不直接碰 DB）
-③ 新文件命名/位置对齐原版（先看 evoflow/ 对应目录再动手）
+① 核心层不反向 import 应用层（当前还没有 app/）
+② 业务数据通过 persistence/ repo；LangGraph checkpoint 与 observability 独立库是专用边界
+③ M6 MCP/search/auth/trace 模块目前是组件能力，尚未全部接进主 Agent 对话链路
 ```
 
-## 5. 阅读顺序建议
+## 6. 阅读顺序建议
 
 1. 先读 `cli/设计说明.md`（一条对话的全链路）→ 建立整体感
 2. 再按依赖序读：`config` → `models` → `persistence` → `agents`
-3. 最后读 `tools`（M1 空壳，M2 才学工具目录）
+3. 再读 `tools` 与 M4 子代理/沙箱，理解工具如何装配与受限执行
 4. 对照本页"文件总目录"逐文件看——每个文件的"为什么"都在表里
 
-## 6. 项目背景快问快答（非代码结构类，之前问过）
+## 7. 项目背景快问快答（非代码结构类，之前问过）
 
 | 问题 | 结论 |
 |---|---|

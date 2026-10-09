@@ -51,8 +51,9 @@
 1. **路径隔离靠规范化后的前缀校验**：任何路径先 `resolve()` 转成真实绝对路径
    （软链、`..`、`~` 全部归一），再校验它是否落在 root 内——写 `/etc/xxx`、
    `../` 逃逸、软链逃逸都在 `_resolve` 被拦（验收点 4 核心）。
-2. **命令隔离只做两层**：`cwd=root` + `timeout`；⚠️ 无 OS 级进程 jail——
-   命令内部 `cd /etc && …` 可逃逸 cwd，完整隔离留 M5，风险点如实标注。
+2. **命令没有隔离**：`cwd=root` 只设置启动目录，`timeout` 只限制运行时间；
+   `shell=True` 命令仍以当前 AgentFlow 进程权限运行，可读写宿主机可访问路径。
+   `.sandbox` 不是 OS 级 jail。切勿向不可信用户开放命令执行。
 3. **单例复用**：Provider 固定一个沙箱；测试注入临时目录，所有操作只碰临时目录。
 4. **不缓存解析结果**：每次操作实时 resolve，防 TOCTOU 竞态（M4 够用）。
 
@@ -141,10 +142,10 @@ from agentflow.sandbox.sandbox_provider import SandboxProvider
 
 ```python
 class LocalSandbox(Sandbox):
-    """本地目录沙箱：root 目录内可读写/执行，root 外一律拒绝。
+    """本地文件 API 以 root 为边界；命令执行并不受该路径边界限制。
 
-    M4 定位：文件路径级隔离（验收点 4）。命令执行 cwd 限制 + 超时，
-    但不做 OS 级进程 jail（`cd /etc && …` 可逃逸 cwd，见风险点 2）。
+    M4 定位：read/write/list 等文件 API 做路径校验（验收点 4）。
+    execute_command 使用宿主机 shell，cwd 只是初始目录；没有 OS 级进程隔离。
     """
 
     def __init__(self, root: str | Path):
@@ -226,16 +227,16 @@ class LocalSandbox(Sandbox):
         return out.strip() or "(无输出)"
 ```
 
-**结构简析**：`shell=True` 故意接受完整 shell 串（标注"沙箱设计如此"），限制手段只有 `cwd=self._root`（起始目录）和 `timeout` 两级。错误分两路：超时 → `SandboxCommandError`（`from None` 不串栈）；非零退出码 → 同样抛 Command，details 带输出前 500 字符。
+**结构简析**：`shell=True` 接受完整 shell 串，并以 AgentFlow 进程权限执行。`cwd=self._root` 只指定起始工作目录，`timeout` 只限制执行时长；二者都不限制命令访问宿主机文件或启动子进程。错误分两路：超时 → `SandboxCommandError`（`from None` 不串栈）；非零退出码 → 同样抛 Command，details 带输出前 500 字符。
 
 **`execute_command()` 参数逐条解释**：
 
 | 参数 | 类型 | 默认值 | 含义 |
 |---|---|---|---|
-| `command` | `str` | 必填 | shell 字符串命令，在沙箱 root 目录内 `subprocess.run(..., shell=True, cwd=self._root)` 执行 |
+| `command` | `str` | 必填 | 以宿主机进程权限执行的 shell 字符串；`cwd=self._root` 只设置启动目录，不构成访问控制 |
 | `timeout` | `int` | `30` | 超时秒数；超时抛 `SandboxCommandError("命令超时（>{timeout}s）…")` |
 
-**落库要点**：输出合并 `stdout+stderr`、strip，空输出返回 `"(无输出)"`；非零码 `check=False` 不自动抛，走 returncode 分支转 Command。**如实标注风险**：命令内部 `cd /etc && cat /etc/hosts` 可逃逸 cwd 限制——这不是文件路径沙箱能拦的，完整 OS 级 jail 留 M5。
+**落库要点**：输出合并 `stdout+stderr`、strip，空输出返回 `"(无输出)"`；非零码 `check=False` 不自动抛，走 returncode 分支转 Command。`execute_command` 不经 `_resolve`，绝对路径和 shell 操作均可触及该进程有权访问的宿主机资源；项目没有提供 OS 级隔离实现。
 
 ### 块 5：`read_file` / `list_dir` —— 读向操作
 
@@ -426,8 +427,9 @@ class LocalSandboxProvider(SandboxProvider):
 | `../` 向上逃逸 | :39-43 | SandboxPermissionError |
 | 沙箱内正常写读 | :21-25 | 放行 |
 
-**注意边界**：这是**文件路径级**隔离；`execute_command` 里 shell 命令内部的
-`cd /etc && …` 不经过 `_resolve`，不在本闸防护范围（见风险点 2）。
+**注意边界**：这是**文件 API 路径级**隔离；`execute_command` 不经过 `_resolve`，
+可以访问当前进程有权限访问的宿主机资源。CLI 默认使用 `.sandbox` 作为文件 API 的
+root，不代表 shell 被限制在 `.sandbox` 中。
 
 ### 2. 为什么用 `resolve()` 而不是 `normpath()` 做规范化？
 
@@ -435,16 +437,17 @@ class LocalSandboxProvider(SandboxProvider):
 指向 `/etc` 的符号链接，normpath 会被骗过；`resolve()` 实时把路径解析成真实位置，
 软链逃逸同样落网。源码头部风险点 1 即此告诫。
 
-### 3. execute_command 只设了 cwd=root，为什么还算"沙箱"？
+### 3. `execute_command` 只设了 cwd=root，命令会被限制在 root 内吗？
 
-**一句话**：如实说——M4 它只做到"文件路径级隔离"，命令执行只有 cwd + 超时两级
-限制，**没有 OS 级进程 jail**。`cd /etc && cat /etc/hosts` 这类命令能逃出 cwd 限制，
-完整执行安全隔离是 M5（execution security）的事，勿声称 M4 已对命令做 jail。
+不会。M4 的路径边界只适用于 read/write/list 等文件 API。shell 命令以 AgentFlow
+进程权限执行；`cwd` 是启动目录，命令可以访问进程有权限访问的宿主机资源。当前代码
+没有实现 OS 级进程隔离，也不能把未来里程碑当作现有保护。
 
 ## ⚠️ 风险点
 
-1. **execute_command 无 OS 级 jail**：命令内部可 `cd` 到沙箱外——文件操作有 `_resolve`
-   兜底，命令没有。勿对外声称"命令已隔离"；完整 jail 留 M5。
+1. **execute_command 可访问宿主机资源**：shell 以 AgentFlow 进程权限运行；`.sandbox`
+   只约束文件 API 的路径解析，不约束 shell。对不可信输入开放该工具前必须增加真正的
+   OS/容器级隔离和权限边界；当前实现没有这些保护。
 2. `_resolve` 必须用 `resolve()`（软链/`..` 全规范化）——改用 `normpath` 会被软链绕过。
 3. LocalSandbox 不缓存解析结果，每次操作实时 resolve——防 TOCTOU 竞态，M4 够用；
    高频调用时可留意重复 resolve 开销。

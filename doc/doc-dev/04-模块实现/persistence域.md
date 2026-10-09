@@ -1,16 +1,16 @@
 <!-- ============================================================
   AgentFlow doc · 文档注释
-  更新时间: 2026-09-28
+  更新时间: 2026-10-05
   维护约定: 本文件内容随里程碑推进更新；接手 AI 先读标题与正文引言。
   关联项目: AgentFlow（仿写 EvoFlow，原版参照 /Users/main/EvoFlow 只读）
 ================================================================ -->
 # persistence 域（实现说明）
 
-> 对应原版：`evoflow/persistence/`。**SQLite 唯一属主**——全项目只有这个域碰数据库。
+> 对应原版：`evoflow/persistence/`。本域集中管理 AgentFlow 的业务表与 repository；LangGraph checkpoint 和 M6 trace 存储是专用例外，见下文。
 
 ## 设计原则（照搬原版 R1 精神的本地版）
 
-1. **收口**：所有 SQL 在 persistence 域内；其他模块拿到的是 repo 对象，不是 Connection
+1. **业务 SQL 收口**：业务表 SQL 在 persistence 域内；其他业务模块拿 repo 对象，不直接拼 SQL
 2. **表结构先行**：schema.py 是唯一表定义处（对应原版 data_layout.py 的"布局先行"思想）
 3. **repo 模式**：每个业务实体一个 `XxxRepository(conn)`，方法 = 该实体的读写操作
 
@@ -26,7 +26,7 @@ def connect(db_path) -> sqlite3.Connection:
 ```
 
 ### `schema.py`
-- `SCHEMA_SQL` 常量：`sessions` + `session_messages` 两张表
+- `SCHEMA_SQL` 常量：当前定义 9 张业务表，覆盖会话、记忆、知识、沙箱审计、goal 与 automation
 - 为什么拆表：会话元信息（标题/时间）与消息（逐条）分开，未来查询各取所需
 
 ### `bootstrap.py`
@@ -47,11 +47,21 @@ class SessionRepository(BaseRepository):
     add_message(session_id, role, content)
 ```
 
+## SQLite 使用边界
+
+| 存储 | 所属模块 | 说明 |
+|---|---|---|
+| AgentFlow 业务表 | `persistence/` | schema + repositories 管理 |
+| LangGraph checkpoint 表 | `agents/checkpointer/` + LangGraph | saver 负责状态序列化和表操作 |
+| 可观测 trace 表 | `observability/store.py` | M6 独立 `obs.db`；当前没有自动接入 Agent 对话循环 |
+
+因此“SQLite 唯一属主”指业务数据 repo 的责任边界，不等于全项目只有 persistence 可接触 SQLite。
+
 ## 与原版的差异（明确记录）
 
 | 原版 | 我们 M1 |
 |---|---|
-| 60 个文件（chat/goal/auth/automation... 各 repo） | 6 个文件，只有 session repo |
+| 60 个文件（chat/goal/auth/automation... 各 repo） | 按 M0-M6 逐步增加业务 repo |
 | 自研异步 repo + 复杂迁移（bootstrap 还做模型迁移/seed） | 同步 sqlite3，纯建表 |
 | checkpoint 状态与业务表共存于同一 DB | 同：checkpointer 用 SqliteSaver 连同一个 agentflow.db |
 

@@ -290,6 +290,42 @@ recurring 任务按 cron 该几点跑就几点跑，不需要记住"上一分钟
 此时即使 `once_fired` 还是 0，`abs(now - scheduled_at) > 120` 也会跳过——
 不补跑 3 小时前该跑的 once。两道合起来才是完整幂等。
 
+### 4. daemon 线程 + detach 是什么意思？（start() 里那行注释）
+
+**一句话**：`daemon=True` = 主线程退出时该线程被**直接强制终止**；detach = 主线程启动它后
+**不 join、不等待**，各跑各的。
+
+**daemon 线程（守护线程）**：
+
+| 线程类型 | 主线程退出时 |
+|---|---|
+| 非 daemon（默认） | 进程**必须等它结束**才能退出——主代码跑完但还有非 daemon 线程活着，进程就挂着 |
+| daemon=True | 进程**立即退出**，该线程被丢弃，不等不救 |
+
+**detach（分离）**：C++ 有显式的 `std::thread::detach()`；Python 没有单独方法，
+"分离"效果 = `daemon=True` + 不 `join()` 组合实现。启动后主线程继续干自己的事，
+不阻塞、不回收。
+
+**为什么 tick 线程敢用 daemon**：它的职责极轻——只**扫库 + 比对 cron + `queue.put`**，
+不碰模型、不持有必须落盘的中间状态（R4/R6 设计约束）。所以：
+
+1. 用户退出 CLI（exit / Ctrl+C）时进程**立刻结束**，不用写 `stop()` 优雅停止；
+2. 队列里还没处理的定时任务直接丢弃可接受（下次启动再触发）；
+3. 若它是非 daemon，退出 CLI 会"卡住"——主线程等着这个 60s 循环永远不结束的线程。
+
+对应源码（`start()`，178-181 行）：
+
+```python
+def start(self) -> None:
+    """启动 daemon tick 线程（detach，主进程退出即随进程结束）。"""
+    self._running = True
+    self._thread = threading.Thread(target=self._loop, daemon=True)
+    self._thread.start()
+```
+
+`stop()` 也印证了这一设计：它只置 `_running=False`，**不 join、不强行 kill**——
+daemon 语义下根本不需要等线程收尾，`_loop` 下一轮 sleep 返回后自然退出即可。
+
 ## ⚠️ 风险点
 
 1. **_fired_minute 是进程内内存态**：重启后清空，靠 once_fired 落库兜底；
@@ -303,3 +339,5 @@ recurring 任务按 cron 该几点跑就几点跑，不需要记住"上一分钟
 _2026-10-02 新建：M5 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
 
 _2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_
+
+_2026-10-06 追加：Q&A 4（daemon 线程 + detach 概念解释，含对比表与源码对照）。_

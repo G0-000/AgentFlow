@@ -47,7 +47,8 @@
 1. **fire-and-forget**：观测写入绝不阻塞主流程——模型 invoke 的时延不该等 SQLite 落盘；
    每次写起一个 daemon 线程跑，失败只打日志不抛给调用方。
 2. **调用方零侵入**：`record_*` 只收标量关键字参数，调用方不用 import store/sqlite。
-3. **可测试**：注入内存 store（`sqlite_path=":memory:"`）即可断言链路完整。
+3. **可测试**：录制器每次写入都会创建新线程；`:memory:` 数据库的连接按线程隔离，
+   因而不能跨主线程和写入线程共享同一份内存数据。测试应使用临时磁盘文件并等待写入完成。
 4. **与 store 分工**：recorder 管"何时记/异步发"，store 管"怎么落 SQLite"。
 
 ## 🎯 实用场景
@@ -70,7 +71,7 @@
 └─ recorder.record_trace_event(run_id, kind, ...)
       └─ _fire(store.insert_event, ...)
             │
-            ▼（每写一次新起一个 daemon 线程）
+            ▼（每写一次新起一个 daemon 线程；不是单一队列写线程）
         _run():
           try: fn(**kwargs)        → store.insert_* → SQLite 落盘
           except: logger.warning("observability write failed: %s")
@@ -229,8 +230,9 @@ store 的 `insert_run`/`insert_event` **逐参数对齐**（全关键字），�
 | `fn` | callable | 必填 | 要异步执行的写库函数（如 `store.insert_run` / `store.insert_event`） |
 | `**kwargs` | `Any` | `{}` | 透传给 `fn` 的关键字参数（run_id/kind/...） |
 
-**落库要点**：daemon 线程随主进程退出即结束，不 join、不等结果；观测写失败被降级为一条 warning，
-主流程（模型 invoke）零感知——代价是极端情况下**观测事件会丢**。
+**落库要点**：每条记录各自创建 daemon 线程；没有队列限流，也没有统一写入顺序保证。
+线程随主进程退出即结束，不 join、不等结果；观测写失败被降级为一条 warning，主流程零感知，
+代价是退出时未完成的事件可能丢失。
 
 ## ❓ Q&A / 知识点
 

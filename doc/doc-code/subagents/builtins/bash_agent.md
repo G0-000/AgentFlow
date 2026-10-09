@@ -24,7 +24,7 @@
 │   description: 跑命令/脚本/批处理任务时派它                │
 │   system_prompt: 只做命令执行，汇报命令与结果摘要          │
 │   tools=["terminal_run"]  白名单（只给终端，最小权限）     │
-│   model="inherit" / max_turns=50 / timeout=120          │
+│   model="inherit" / max_turns=50（未消费） / timeout=120 │
 └──────────────────────────────────────────────────────────┘
 ```
 
@@ -134,7 +134,7 @@ BASH_AGENT_CONFIG = SubagentConfig(
 | `system_prompt` | `str` | 必填 | `<行为准则>`：只做命令执行、沙箱内完成、失败给退出码、不拿终端编辑文件、结束总结 |
 | `tools` | `list[str] \| None` | `None` | 此处显式 `["terminal_run"]`——**白名单只放行终端工具**（最小权限，与 general-purpose 的 None 形成对照） |
 | `model` | `str` | `"inherit"` | 此处显式 `"inherit"`，复用父模型 |
-| `max_turns` | `int` | `100` | 此处显式 `50`，比 general-purpose（100）紧——命令任务不需要那么多轮 |
+| `max_turns` | `int` | `100` | 配置值为 `50`，但 executor 当前未消费，不会限制轮数 |
 | `timeout_seconds` | `int` | `120` | 此处显式 120，单任务上限 |
 
 **落库要点**：本实例未显式传 `disallowed_tools`，用 config 默认黑名单；但因 `tools=["terminal_run"]` 白名单已把工具集裁到只剩终端，黑名单这道在此处实际无额外可剔项——白名单本身已足够窄。
@@ -153,7 +153,7 @@ BASH_AGENT_CONFIG = SubagentConfig(
 
 1. `tools` 白名单改宽 = 扩大 bash 子代理能力面，谨慎（一旦加进 read_file/write_file 就不再是纯命令代理）。
 2. 沙箱内执行：terminal_run 走 LocalSandbox，命令逃逸限制见 sandbox/local.py。
-3. max_turns=50 比通用子代理紧，跑长脚本任务可能被轮数上限截断。
+3. `max_turns=50` 当前不会限制轮数；真正生效的是 `timeout_seconds`，且超时无法强制终止底层线程。
 
 ---
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
