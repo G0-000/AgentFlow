@@ -1,0 +1,188 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "M1｜CLI 对话与检查点持久化",
+    "locale": "zh-CN",
+    "output": "doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/G0-000/AgentFlow.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "a20151258c2b21730e1fab464fbf20078cad00fe"
+    }
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "开发者",
+      "sublabel": "命令行输入",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/cli/main.py",
+          "line": 254,
+          "end_line": 282
+        }
+      ]
+    },
+    {
+      "id": "cli",
+      "type": "backend",
+      "label": "AgentFlow CLI",
+      "sublabel": "加载配置 · stream",
+      "pos": [
+        270,
+        300
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/cli/main.py",
+          "line": 254,
+          "end_line": 282
+        },
+        {
+          "path": "backend/packages/harness/agentflow/cli/main.py",
+          "line": 449,
+          "end_line": 453
+        }
+      ]
+    },
+    {
+      "id": "model",
+      "type": "cloud",
+      "label": "模型工厂",
+      "sublabel": "OpenAI 兼容模型",
+      "pos": [
+        520,
+        140
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/models/factory.py",
+          "line": 51,
+          "end_line": 58
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "主 Agent",
+      "sublabel": "LangChain create_agent",
+      "pos": [
+        520,
+        390
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/agents/lead_agent/agent.py",
+          "line": 66,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "checkpointer",
+      "type": "database",
+      "label": "SQLite Checkpointer",
+      "sublabel": "按 thread_id 保存图状态",
+      "pos": [
+        790,
+        250
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/agents/checkpointer/provider.py",
+          "line": 46,
+          "end_line": 62
+        }
+      ]
+    },
+    {
+      "id": "db",
+      "type": "database",
+      "label": "SQLite 数据库",
+      "sublabel": "会话状态可恢复",
+      "pos": [
+        1030,
+        250
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/agents/checkpointer/provider.py",
+          "line": 61,
+          "end_line": 62
+        },
+        {
+          "path": "backend/packages/harness/agentflow/persistence/session_repositories.py",
+          "line": 50,
+          "end_line": 101
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "user",
+      "to": "cli",
+      "label": "输入消息",
+      "variant": "emphasis"
+    },
+    {
+      "from": "cli",
+      "to": "agent",
+      "label": "stream · thread_id",
+      "variant": "emphasis"
+    },
+    {
+      "from": "cli",
+      "to": "model",
+      "label": "按配置创建模型"
+    },
+    {
+      "from": "agent",
+      "to": "model",
+      "label": "请求 / 回复"
+    },
+    {
+      "from": "agent",
+      "to": "checkpointer",
+      "label": "每步状态"
+    },
+    {
+      "from": "checkpointer",
+      "to": "db",
+      "label": "SQLite 写入"
+    }
+  ]
+}

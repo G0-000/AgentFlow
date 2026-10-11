@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "1c341d8c-8193-4b0f-b5b2-6b4a4351aff9",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/candidate.json",
+  "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html",
+  "specification": {
+    "sha256": "37e3d182d74cee71f964327dc538a6f40356dbc57e5de1633aa5f5de8645e2e4",
+    "bytes": 3596
+  },
+  "artifact": {
+    "sha256": "6965a0742ee40b18a0b76c1cef27a46f16f128c745894d7ca71274262f376bc8",
+    "bytes": 753007
+  }
+}

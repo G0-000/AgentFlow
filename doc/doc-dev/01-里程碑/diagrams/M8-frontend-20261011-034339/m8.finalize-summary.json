@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M8-frontend-20261011-034339/candidate.json",
+    "sha256": "8b70d0b6cc28104d4190800e484d1d5c9170e0da9aa88e978302f89e43b6f081",
+    "bytes": 4149
+  },
+  "artifact": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M8-frontend-20261011-034339/M8.html",
+    "sha256": "a2e7ad03497f182c54e869b706c2b4c873908d0fd3725961ebbb6521f0699ab1",
+    "bytes": 756229
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "fail"
+  },
+  "failedStage": "browser-check",
+  "diagnostics": [
+    {
+      "code": "viewer/browser-check-runtime",
+      "severity": "error",
+      "message": "browser-check could not complete its Chrome inspection.",
+      "subject": {
+        "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M8-frontend-20261011-034339/M8.html"
+      },
+      "evidence": {
+        "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=59152, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      },
+      "supportedFixes": [
+        "resolve the reported Chrome inspection error, then rerun browser-check"
+      ]
+    }
+  ],
+  "diagnosticSummary": {
+    "total": 1,
+    "shown": 1,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M8-frontend-20261011-034339/m8.finalize.json",
+    "summaryReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M8-frontend-20261011-034339/m8.finalize-summary.json",
+    "browserCheckReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M8-frontend-20261011-034339/m8.browser-check.json"
+  },
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "cache-unavailable"
+  },
+  "visualReview": "not-requested",
+  "durationMs": 771
+}

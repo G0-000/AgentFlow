@@ -1,0 +1,203 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "M8｜目标架构：聊天与模型设置前端",
+    "locale": "zh-CN",
+    "output": "doc/doc-dev/01-里程碑/diagrams/M8-frontend-20261011-034339/M8.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/G0-000/AgentFlow.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "a20151258c2b21730e1fab464fbf20078cad00fe"
+    }
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "用户",
+      "sublabel": "浏览器",
+      "pos": [
+        40,
+        350
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M8-验收清单.md",
+          "line": 11,
+          "end_line": 16
+        }
+      ]
+    },
+    {
+      "id": "chat",
+      "type": "frontend",
+      "label": "聊天页",
+      "sublabel": "流式消息 · 多会话",
+      "pos": [
+        300,
+        200
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M8-验收清单.md",
+          "line": 13,
+          "end_line": 16
+        },
+        {
+          "path": "doc/doc-dev/05-验收体系/M8-验收清单.md",
+          "line": 22,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "id": "models",
+      "type": "frontend",
+      "label": "模型设置页",
+      "sublabel": "模型 / 默认项管理",
+      "pos": [
+        300,
+        500
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M8-验收清单.md",
+          "line": 14,
+          "end_line": 15
+        },
+        {
+          "path": "doc/doc-dev/05-验收体系/M8-验收清单.md",
+          "line": 22,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "id": "client",
+      "type": "frontend",
+      "label": "API Client",
+      "sublabel": "HTTP · SSE · 登录态",
+      "pos": [
+        560,
+        350
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M8-验收清单.md",
+          "line": 22,
+          "end_line": 27
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "backend",
+      "label": "M7 Gateway API",
+      "sublabel": "REST / SSE（前置里程碑）",
+      "pos": [
+        820,
+        350
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M8-验收清单.md",
+          "line": 16,
+          "end_line": 16
+        },
+        {
+          "path": "doc/doc-dev/05-验收体系/M8-验收清单.md",
+          "line": 45,
+          "end_line": 45
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "AgentFlow Runtime",
+      "sublabel": "Agent · 工具 · 会话",
+      "pos": [
+        1080,
+        350
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M8-验收清单.md",
+          "line": 16,
+          "end_line": 16
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "user",
+      "to": "chat",
+      "label": "聊天操作",
+      "variant": "emphasis"
+    },
+    {
+      "from": "user",
+      "to": "models",
+      "label": "模型配置"
+    },
+    {
+      "from": "chat",
+      "to": "client",
+      "label": "消息 / thread"
+    },
+    {
+      "from": "models",
+      "to": "client",
+      "label": "模型 CRUD"
+    },
+    {
+      "from": "client",
+      "to": "gateway",
+      "label": "REST / SSE",
+      "variant": "emphasis"
+    },
+    {
+      "from": "gateway",
+      "to": "agent",
+      "label": "调用 Agent / 工具"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "状态说明",
+      "items": [
+        "本图依据 M8 验收需求绘制，属于目标架构。",
+        "Frontend、API Client 和端到端界面尚未实现。"
+      ]
+    }
+  ]
+}

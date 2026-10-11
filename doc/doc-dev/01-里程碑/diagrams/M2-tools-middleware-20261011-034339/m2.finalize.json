@@ -1,0 +1,381 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-10-10T19:46:45.958Z",
+  "specification": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/candidate.json",
+    "sha256": "37e3d182d74cee71f964327dc538a6f40356dbc57e5de1633aa5f5de8645e2e4",
+    "bytes": 3596
+  },
+  "artifact": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html",
+    "sha256": "6965a0742ee40b18a0b76c1cef27a46f16f128c745894d7ca71274262f376bc8",
+    "bytes": 753007
+  },
+  "stages": {
+    "validate": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": null,
+      "execution": "embedded-in-deliver",
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/candidate.json",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/main/AgentFlow",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "validate",
+        "specification": {
+          "sha256": "37e3d182d74cee71f964327dc538a6f40356dbc57e5de1633aa5f5de8645e2e4",
+          "bytes": 3596
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        }
+      }
+    },
+    "deliver": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 433,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/candidate.json",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/main/AgentFlow",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "1c341d8c-8193-4b0f-b5b2-6b4a4351aff9",
+        "ok": true,
+        "command": "deliver",
+        "type": "architecture",
+        "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/candidate.json",
+        "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html",
+        "specification": {
+          "sha256": "37e3d182d74cee71f964327dc538a6f40356dbc57e5de1633aa5f5de8645e2e4",
+          "bytes": 3596
+        },
+        "artifact": {
+          "sha256": "6965a0742ee40b18a0b76c1cef27a46f16f128c745894d7ca71274262f376bc8",
+          "bytes": 753007
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        },
+        "evidence": {
+          "verified": true,
+          "repository": "https://github.com/G0-000/AgentFlow",
+          "revision": "a20151258c2b21730e1fab464fbf20078cad00fe",
+          "references": 7
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    },
+    "check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 171,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "check",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html",
+        "--require-provenance"
+      ],
+      "receipt": {
+        "ok": true,
+        "file": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html",
+        "artifact": {
+          "sha256": "6965a0742ee40b18a0b76c1cef27a46f16f128c745894d7ca71274262f376bc8",
+          "bytes": 753007
+        },
+        "checks": [
+          {
+            "name": "single_svg",
+            "ok": true,
+            "details": [
+              "found 1 <svg> block(s)"
+            ]
+          },
+          {
+            "name": "finite_svg",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "orthogonal_arrows",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "label_route_clearance",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_crossings",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_corridors",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "container_border_runs",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "route_rhythm",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "legend_clearance",
+            "ok": true,
+            "details": []
+          }
+        ],
+        "composition": {
+          "schemaVersion": 1,
+          "profile": "showcase",
+          "status": "pass",
+          "summary": {
+            "errors": 0,
+            "warnings": 0
+          },
+          "metrics": {
+            "properCrossings": 0,
+            "resolvedCrossovers": 0,
+            "ambiguousCorridors": 0,
+            "arrowheadCollisions": 0,
+            "containerBorderRuns": 0,
+            "labelRouteClearanceIssues": 0,
+            "labelCanvasOverflowIssues": 0,
+            "minLabelRouteClearance": 70.5,
+            "desktopReadabilityIssues": 0,
+            "viewportHeightIssues": 0,
+            "minProjectedNodeTextPx": 7.5,
+            "maxBends": 2,
+            "routesOverSuggestedBends": 0,
+            "maxStretch": 1,
+            "routesOverSuggestedStretch": 0,
+            "minSegmentPx": 50,
+            "minInteriorSegmentPx": 153,
+            "shortSegmentCount": 0,
+            "shortEndpointSegmentCount": 0,
+            "shortInteriorSegmentCount": 0,
+            "microSegmentCount": 0
+          },
+          "suggestedLimits": {
+            "bendsPerRelationship": 2,
+            "stretch": 1.35,
+            "segmentPx": 16,
+            "microSegmentPx": 8
+          },
+          "routeReview": {
+            "crossings": [],
+            "detours": []
+          },
+          "leadingSpace": {
+            "measured": true,
+            "emptyTopPx": 130,
+            "emptyTopRatio": 0.217,
+            "occupiedTop": 130,
+            "viewBoxTop": 0,
+            "canvasHeight": 598,
+            "typicalNodeHeight": 70,
+            "reviewSuggested": false
+          },
+          "desktopReadability": {
+            "budgetBasis": "recognized-declared-wide",
+            "readerContract": "declared-wide-v1",
+            "availableDiagramWidth": 1200,
+            "actualBudgetPx": 1200,
+            "actualReaderWidth": 1230,
+            "desiredReaderWidth": 1230,
+            "viewportCap": 1376,
+            "limit": "source-size",
+            "requestedTargetPx": 7.5,
+            "requestedTargetMet": true,
+            "hardFloorPx": 6,
+            "hardFloorMet": true,
+            "minimumOwner": {
+              "kind": "edge",
+              "id": null,
+              "from": "cli",
+              "to": "agent"
+            },
+            "minimumSourceTextPx": 8,
+            "minimumProjectedTextPx": 7.5,
+            "semanticTextCount": 17
+          },
+          "issues": []
+        },
+        "provenance": "current",
+        "deliveryReceiptId": "1c341d8c-8193-4b0f-b5b2-6b4a4351aff9"
+      }
+    },
+    "browser-check": {
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 23,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "browser-check",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html",
+        "--json",
+        "--require-provenance"
+      ],
+      "execution": "in-process",
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": false,
+        "command": "browser-check",
+        "evidenceKind": "automated-browser",
+        "status": "fail",
+        "visualReview": "not-requested",
+        "provenance": "current",
+        "deliveryReceiptId": "1c341d8c-8193-4b0f-b5b2-6b4a4351aff9",
+        "artifact": {
+          "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html",
+          "sha256": "6965a0742ee40b18a0b76c1cef27a46f16f128c745894d7ca71274262f376bc8",
+          "bytes": 753007
+        },
+        "state": {
+          "detail": "read",
+          "motion": "still"
+        },
+        "chrome": {
+          "status": "available",
+          "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        },
+        "diagnostics": [
+          {
+            "code": "viewer/browser-check-runtime",
+            "severity": "error",
+            "message": "browser-check could not complete its Chrome inspection.",
+            "subject": {
+              "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html"
+            },
+            "evidence": {
+              "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=58863, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+            },
+            "supportedFixes": [
+              "resolve the reported Chrome inspection error, then rerun browser-check"
+            ]
+          }
+        ],
+        "containment": {
+          "status": "fail",
+          "policy": "fit-or-reader-declared-readable-vertical-scroll",
+          "viewports": []
+        },
+        "themeStates": {
+          "status": "fail",
+          "viewports": []
+        },
+        "readability": {
+          "status": "fail",
+          "minimumProjectedNodeTextPx": 6,
+          "viewports": []
+        },
+        "viewerChrome": {
+          "status": "fail",
+          "viewports": []
+        },
+        "captures": {
+          "status": "not-requested",
+          "screenshots": [],
+          "contactSheet": null
+        },
+        "sidecars": {
+          "receipt": "m2.browser-check.json",
+          "files": []
+        },
+        "error": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=58863, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "viewer/browser-check-runtime",
+      "severity": "error",
+      "message": "browser-check could not complete its Chrome inspection.",
+      "subject": {
+        "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/M2.html"
+      },
+      "evidence": {
+        "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=58863, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      },
+      "supportedFixes": [
+        "resolve the reported Chrome inspection error, then rerun browser-check"
+      ]
+    }
+  ],
+  "evidence": {
+    "receipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/m2.finalize.json",
+    "summaryReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/m2.finalize-summary.json",
+    "browserCheckReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M2-tools-middleware-20261011-034339/m2.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "failedStage": "browser-check",
+  "finishedAt": "2026-10-10T19:46:46.707Z",
+  "durationMs": 748,
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "cache-unavailable"
+  }
+}

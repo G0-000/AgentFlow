@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "M5｜Plan、Goal 与 Automation 生命周期",
+    "locale": "zh-CN",
+    "output": "doc/doc-dev/01-里程碑/diagrams/M5-long-running-work-20261011-034339/M5.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/G0-000/AgentFlow.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "a20151258c2b21730e1fab464fbf20078cad00fe"
+    }
+  },
+  "components": [
+    {
+      "id": "user",
+      "type": "external",
+      "label": "用户",
+      "sublabel": "--goal / CLI 命令",
+      "pos": [
+        40,
+        300
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/01-里程碑/M5-长任务与协作.md",
+          "line": 1,
+          "end_line": 35
+        }
+      ]
+    },
+    {
+      "id": "plans",
+      "type": "backend",
+      "label": "Plan Resolver",
+      "sublabel": "依赖排序 · 下一步选择",
+      "pos": [
+        300,
+        150
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/plans/resolver.py",
+          "line": 1,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "engine",
+      "type": "backend",
+      "label": "GoalEngine",
+      "sublabel": "规划 · 执行 · 恢复 · 汇总",
+      "pos": [
+        560,
+        300
+      ],
+      "size": [
+        170,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/agents/goal/goal_loop.py",
+          "line": 84,
+          "end_line": 232
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "主 Agent",
+      "sublabel": "执行计划步骤 / automation prompt",
+      "pos": [
+        830,
+        300
+      ],
+      "size": [
+        170,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/agents/goal/goal_loop.py",
+          "line": 117,
+          "end_line": 201
+        },
+        {
+          "path": "backend/packages/harness/agentflow/cli/main.py",
+          "line": 449,
+          "end_line": 470
+        }
+      ]
+    },
+    {
+      "id": "goals",
+      "type": "database",
+      "label": "Goal Repository",
+      "sublabel": "目标与步骤状态",
+      "pos": [
+        560,
+        500
+      ],
+      "size": [
+        170,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/persistence/goal_repositories.py",
+          "line": 1,
+          "end_line": 140
+        }
+      ]
+    },
+    {
+      "id": "scheduler",
+      "type": "backend",
+      "label": "AutomationScheduler",
+      "sublabel": "扫描 active · Cron 匹配",
+      "pos": [
+        300,
+        500
+      ],
+      "size": [
+        170,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/scheduler/loop.py",
+          "line": 64,
+          "end_line": 116
+        }
+      ]
+    },
+    {
+      "id": "automations",
+      "type": "database",
+      "label": "Automation Repository",
+      "sublabel": "任务定义 · 执行记录",
+      "pos": [
+        40,
+        500
+      ],
+      "size": [
+        170,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/persistence/automation_repositories.py",
+          "line": 1,
+          "end_line": 120
+        }
+      ]
+    },
+    {
+      "id": "queue",
+      "type": "messagebus",
+      "label": "Queue",
+      "sublabel": "task_id · prompt",
+      "pos": [
+        560,
+        700
+      ],
+      "size": [
+        170,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/scheduler/loop.py",
+          "line": 64,
+          "end_line": 116
+        },
+        {
+          "path": "doc/doc-dev/01-里程碑/M5-长任务与协作.md",
+          "line": 15,
+          "end_line": 35
+        }
+      ]
+    },
+    {
+      "id": "repl",
+      "type": "backend",
+      "label": "CLI Main Thread",
+      "sublabel": "drain queue · invoke Agent",
+      "pos": [
+        830,
+        500
+      ],
+      "size": [
+        170,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/cli/main.py",
+          "line": 254,
+          "end_line": 470
+        },
+        {
+          "path": "doc/doc-dev/01-里程碑/M5-长任务与协作.md",
+          "line": 139,
+          "end_line": 184
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "user",
+      "to": "repl",
+      "label": "CLI / --goal",
+      "variant": "emphasis"
+    },
+    {
+      "from": "repl",
+      "to": "engine",
+      "label": "start / resume"
+    },
+    {
+      "from": "engine",
+      "to": "plans",
+      "label": "排序依赖 · 选择就绪步"
+    },
+    {
+      "from": "engine",
+      "to": "agent",
+      "label": "invoke 计划步骤",
+      "variant": "emphasis"
+    },
+    {
+      "from": "engine",
+      "to": "goals",
+      "label": "保存目标与进度"
+    },
+    {
+      "from": "scheduler",
+      "to": "automations",
+      "label": "list_active"
+    },
+    {
+      "from": "scheduler",
+      "to": "queue",
+      "label": "queue.put(task_id, prompt)"
+    },
+    {
+      "from": "queue",
+      "to": "repl",
+      "label": "主线程 drain"
+    },
+    {
+      "from": "repl",
+      "to": "agent",
+      "label": "invoke automation prompt"
+    }
+  ]
+}

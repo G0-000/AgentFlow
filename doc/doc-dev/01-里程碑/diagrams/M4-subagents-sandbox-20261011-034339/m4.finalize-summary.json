@@ -1,0 +1,64 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/candidate.json",
+    "sha256": "d15f6d223a091c43f0151506437b5e1b325ef43889c44d228f1053da26cb6318",
+    "bytes": 3825
+  },
+  "artifact": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+    "sha256": "ffc0bcece740ef836b28f1bbdb105ac523b04f598ee21e0fda0956a494b56365",
+    "bytes": 753425
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "fail"
+  },
+  "failedStage": "browser-check",
+  "diagnostics": [
+    {
+      "code": "viewer/browser-check-runtime",
+      "severity": "error",
+      "message": "browser-check could not complete its Chrome inspection.",
+      "subject": {
+        "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html"
+      },
+      "evidence": {
+        "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=58955, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      },
+      "supportedFixes": [
+        "resolve the reported Chrome inspection error, then rerun browser-check"
+      ]
+    }
+  ],
+  "diagnosticSummary": {
+    "total": 1,
+    "shown": 1,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/m4.finalize.json",
+    "summaryReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/m4.finalize-summary.json",
+    "browserCheckReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/m4.browser-check.json"
+  },
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "cache-unavailable"
+  },
+  "visualReview": "not-requested",
+  "durationMs": 766
+}

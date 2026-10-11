@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "f303073b-fbe1-4f77-b32c-3a0a2bd097a0",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M0-environment-20261011-034339/candidate.json",
+  "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M0-environment-20261011-034339/M0.html",
+  "specification": {
+    "sha256": "7494dfcca47701e4c36a6c526588eca3b27da5692bf530bfe2e51bddeda1e761",
+    "bytes": 3067
+  },
+  "artifact": {
+    "sha256": "861ac4f8e01d8d5b122d9518f530795141f768fb7c003c89944f4faf2a14ae6e",
+    "bytes": 751440
+  }
+}

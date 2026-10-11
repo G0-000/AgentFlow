@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "215c2127-95b9-4a1b-9d1d-94de03ee26c7",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/candidate.json",
+  "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+  "specification": {
+    "sha256": "8b594cbbbe3c762d4d276cd736ba0462297ec71d26b066943df81966c4df4efe",
+    "bytes": 3859
+  },
+  "artifact": {
+    "sha256": "a2a10d893a05180d86e15a1666baafc00d11ae668ccdc75966b76b83c908d32f",
+    "bytes": 755352
+  }
+}

@@ -1,0 +1,381 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-10-10T19:46:34.643Z",
+  "specification": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/candidate.json",
+    "sha256": "8b594cbbbe3c762d4d276cd736ba0462297ec71d26b066943df81966c4df4efe",
+    "bytes": 3859
+  },
+  "artifact": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+    "sha256": "a2a10d893a05180d86e15a1666baafc00d11ae668ccdc75966b76b83c908d32f",
+    "bytes": 755352
+  },
+  "stages": {
+    "validate": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": null,
+      "execution": "embedded-in-deliver",
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/candidate.json",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/main/AgentFlow",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "validate",
+        "specification": {
+          "sha256": "8b594cbbbe3c762d4d276cd736ba0462297ec71d26b066943df81966c4df4efe",
+          "bytes": 3859
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        }
+      }
+    },
+    "deliver": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 443,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/candidate.json",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/main/AgentFlow",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "215c2127-95b9-4a1b-9d1d-94de03ee26c7",
+        "ok": true,
+        "command": "deliver",
+        "type": "architecture",
+        "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/candidate.json",
+        "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+        "specification": {
+          "sha256": "8b594cbbbe3c762d4d276cd736ba0462297ec71d26b066943df81966c4df4efe",
+          "bytes": 3859
+        },
+        "artifact": {
+          "sha256": "a2a10d893a05180d86e15a1666baafc00d11ae668ccdc75966b76b83c908d32f",
+          "bytes": 755352
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        },
+        "evidence": {
+          "verified": true,
+          "repository": "https://github.com/G0-000/AgentFlow",
+          "revision": "a20151258c2b21730e1fab464fbf20078cad00fe",
+          "references": 8
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    },
+    "check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 180,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "check",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+        "--require-provenance"
+      ],
+      "receipt": {
+        "ok": true,
+        "file": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+        "artifact": {
+          "sha256": "a2a10d893a05180d86e15a1666baafc00d11ae668ccdc75966b76b83c908d32f",
+          "bytes": 755352
+        },
+        "checks": [
+          {
+            "name": "single_svg",
+            "ok": true,
+            "details": [
+              "found 1 <svg> block(s)"
+            ]
+          },
+          {
+            "name": "finite_svg",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "orthogonal_arrows",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "label_route_clearance",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_crossings",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_corridors",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "container_border_runs",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "route_rhythm",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "legend_clearance",
+            "ok": true,
+            "details": []
+          }
+        ],
+        "composition": {
+          "schemaVersion": 1,
+          "profile": "showcase",
+          "status": "pass",
+          "summary": {
+            "errors": 0,
+            "warnings": 0
+          },
+          "metrics": {
+            "properCrossings": 0,
+            "resolvedCrossovers": 0,
+            "ambiguousCorridors": 0,
+            "arrowheadCollisions": 0,
+            "containerBorderRuns": 0,
+            "labelRouteClearanceIssues": 0,
+            "labelCanvasOverflowIssues": 0,
+            "minLabelRouteClearance": 49,
+            "desktopReadabilityIssues": 0,
+            "viewportHeightIssues": 0,
+            "minProjectedNodeTextPx": 7.5,
+            "maxBends": 2,
+            "routesOverSuggestedBends": 0,
+            "maxStretch": 1,
+            "routesOverSuggestedStretch": 0,
+            "minSegmentPx": 45,
+            "minInteriorSegmentPx": 81.9,
+            "shortSegmentCount": 0,
+            "shortEndpointSegmentCount": 0,
+            "shortInteriorSegmentCount": 0,
+            "microSegmentCount": 0
+          },
+          "suggestedLimits": {
+            "bendsPerRelationship": 2,
+            "stretch": 1.35,
+            "segmentPx": 16,
+            "microSegmentPx": 8
+          },
+          "routeReview": {
+            "crossings": [],
+            "detours": []
+          },
+          "leadingSpace": {
+            "measured": true,
+            "emptyTopPx": 140,
+            "emptyTopRatio": 0.265,
+            "occupiedTop": 140,
+            "viewBoxTop": 0,
+            "canvasHeight": 528,
+            "typicalNodeHeight": 70,
+            "reviewSuggested": false
+          },
+          "desktopReadability": {
+            "budgetBasis": "recognized-declared-wide",
+            "readerContract": "declared-wide-v1",
+            "availableDiagramWidth": 1153.125,
+            "actualBudgetPx": 1153.125,
+            "actualReaderWidth": 1183.125,
+            "desiredReaderWidth": 1183.125,
+            "viewportCap": 1376,
+            "limit": "source-size",
+            "requestedTargetPx": 7.5,
+            "requestedTargetMet": true,
+            "hardFloorPx": 6,
+            "hardFloorMet": true,
+            "minimumOwner": {
+              "kind": "edge",
+              "id": null,
+              "from": "user",
+              "to": "cli"
+            },
+            "minimumSourceTextPx": 8,
+            "minimumProjectedTextPx": 7.5,
+            "semanticTextCount": 18
+          },
+          "issues": []
+        },
+        "provenance": "current",
+        "deliveryReceiptId": "215c2127-95b9-4a1b-9d1d-94de03ee26c7"
+      }
+    },
+    "browser-check": {
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 18,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "browser-check",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+        "--json",
+        "--require-provenance"
+      ],
+      "execution": "in-process",
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": false,
+        "command": "browser-check",
+        "evidenceKind": "automated-browser",
+        "status": "fail",
+        "visualReview": "not-requested",
+        "provenance": "current",
+        "deliveryReceiptId": "215c2127-95b9-4a1b-9d1d-94de03ee26c7",
+        "artifact": {
+          "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html",
+          "sha256": "a2a10d893a05180d86e15a1666baafc00d11ae668ccdc75966b76b83c908d32f",
+          "bytes": 755352
+        },
+        "state": {
+          "detail": "read",
+          "motion": "still"
+        },
+        "chrome": {
+          "status": "available",
+          "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        },
+        "diagnostics": [
+          {
+            "code": "viewer/browser-check-runtime",
+            "severity": "error",
+            "message": "browser-check could not complete its Chrome inspection.",
+            "subject": {
+              "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html"
+            },
+            "evidence": {
+              "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=58802, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+            },
+            "supportedFixes": [
+              "resolve the reported Chrome inspection error, then rerun browser-check"
+            ]
+          }
+        ],
+        "containment": {
+          "status": "fail",
+          "policy": "fit-or-reader-declared-readable-vertical-scroll",
+          "viewports": []
+        },
+        "themeStates": {
+          "status": "fail",
+          "viewports": []
+        },
+        "readability": {
+          "status": "fail",
+          "minimumProjectedNodeTextPx": 6,
+          "viewports": []
+        },
+        "viewerChrome": {
+          "status": "fail",
+          "viewports": []
+        },
+        "captures": {
+          "status": "not-requested",
+          "screenshots": [],
+          "contactSheet": null
+        },
+        "sidecars": {
+          "receipt": "m1.browser-check.json",
+          "files": []
+        },
+        "error": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=58802, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "viewer/browser-check-runtime",
+      "severity": "error",
+      "message": "browser-check could not complete its Chrome inspection.",
+      "subject": {
+        "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/M1.html"
+      },
+      "evidence": {
+        "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=58802, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      },
+      "supportedFixes": [
+        "resolve the reported Chrome inspection error, then rerun browser-check"
+      ]
+    }
+  ],
+  "evidence": {
+    "receipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/m1.finalize.json",
+    "summaryReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/m1.finalize-summary.json",
+    "browserCheckReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M1-minimal-agent-20261011-034339/m1.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "failedStage": "browser-check",
+  "finishedAt": "2026-10-10T19:46:35.480Z",
+  "durationMs": 836,
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "cache-unavailable"
+  }
+}

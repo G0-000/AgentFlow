@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "cebb0f30-72d3-4c51-900d-79682e3e464f",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M5-long-running-work-20261011-034339/candidate.json",
+  "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M5-long-running-work-20261011-034339/M5.html",
+  "specification": {
+    "sha256": "3c389922fe6052410bb05a4aaf6c20c8f387c9ca37a7e45cf5ab00fe5fccc9a5",
+    "bytes": 5583
+  },
+  "artifact": {
+    "sha256": "02f716d7144d97d59745962a55386cb1e74f888c66b9be11375dcb1c83e33a0f",
+    "bytes": 763339
+  }
+}

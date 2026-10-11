@@ -1,0 +1,218 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "M4｜子代理调度与沙箱执行边界",
+    "locale": "zh-CN",
+    "output": "doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/G0-000/AgentFlow.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "a20151258c2b21730e1fab464fbf20078cad00fe"
+    }
+  },
+  "components": [
+    {
+      "id": "lead",
+      "type": "backend",
+      "label": "主 Agent",
+      "sublabel": "工具调用",
+      "pos": [
+        40,
+        320
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/agents/lead_agent/agent.py",
+          "line": 66,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "dispatch",
+      "type": "backend",
+      "label": "Dispatch Tool",
+      "sublabel": "派发独立子任务",
+      "pos": [
+        310,
+        320
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/tools/builtins/dispatch_tool.py",
+          "line": 82,
+          "end_line": 105
+        }
+      ]
+    },
+    {
+      "id": "executor",
+      "type": "backend",
+      "label": "SubagentExecutor",
+      "sublabel": "创建 · 并行执行 · 汇总",
+      "pos": [
+        580,
+        320
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/subagents/executor.py",
+          "line": 137,
+          "end_line": 288
+        }
+      ]
+    },
+    {
+      "id": "subagent",
+      "type": "backend",
+      "label": "子代理 Agent",
+      "sublabel": "任务专属 Agent",
+      "pos": [
+        850,
+        160
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/subagents/executor.py",
+          "line": 165,
+          "end_line": 188
+        }
+      ]
+    },
+    {
+      "id": "tools",
+      "type": "backend",
+      "label": "终端 / 文件工具",
+      "sublabel": "安全边界与审计调用",
+      "pos": [
+        850,
+        500
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/tools/builtins/terminal_tool.py",
+          "line": 79,
+          "end_line": 92
+        },
+        {
+          "path": "backend/packages/harness/agentflow/tools/builtins/file_tools.py",
+          "line": 84,
+          "end_line": 118
+        }
+      ]
+    },
+    {
+      "id": "sandbox",
+      "type": "backend",
+      "label": "LocalSandboxProvider",
+      "sublabel": "项目 .sandbox 根目录",
+      "pos": [
+        1140,
+        500
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/sandbox/local.py",
+          "line": 1,
+          "end_line": 110
+        },
+        {
+          "path": "backend/packages/harness/agentflow/sandbox/sandbox_provider.py",
+          "line": 47,
+          "end_line": 84
+        }
+      ]
+    },
+    {
+      "id": "audit",
+      "type": "database",
+      "label": "SandboxAuditRepository",
+      "sublabel": "sandbox_audit 表",
+      "pos": [
+        1430,
+        500
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/persistence/sandbox_audit_repositories.py",
+          "line": 43,
+          "end_line": 100
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "lead",
+      "to": "dispatch",
+      "label": "dispatch_subagents",
+      "variant": "emphasis"
+    },
+    {
+      "from": "dispatch",
+      "to": "executor",
+      "label": "构造并派发"
+    },
+    {
+      "from": "executor",
+      "to": "subagent",
+      "label": "invoke / 并行 / 汇总"
+    },
+    {
+      "from": "subagent",
+      "to": "tools",
+      "label": "共享注入的工具集"
+    },
+    {
+      "from": "tools",
+      "to": "sandbox",
+      "label": "execute / read / write"
+    },
+    {
+      "from": "tools",
+      "to": "audit",
+      "label": "每次操作记录"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "边界说明",
+      "items": [
+        "CLI 注入本地沙箱提供方与审计仓库。",
+        "审计由终端/文件工具写入，不由 Sandbox 抽象直接写库。"
+      ]
+    }
+  ]
+}

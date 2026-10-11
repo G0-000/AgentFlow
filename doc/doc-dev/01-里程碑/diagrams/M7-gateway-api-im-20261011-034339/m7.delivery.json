@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "5cbd62ba-917d-4218-8bb6-45deba7ea635",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M7-gateway-api-im-20261011-034339/candidate.json",
+  "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M7-gateway-api-im-20261011-034339/M7.html",
+  "specification": {
+    "sha256": "9501b891b2077c0b35ee251824fbdd43bba439fbf6c5cd6588ac687f8d57418a",
+    "bytes": 4490
+  },
+  "artifact": {
+    "sha256": "4a04f6712a9ed8e93f7eb7effa57caa12317a67e3bb01bcacc381d76aee18e98",
+    "bytes": 758921
+  }
+}

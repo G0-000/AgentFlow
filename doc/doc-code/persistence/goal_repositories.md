@@ -475,6 +475,29 @@ WHERE goal_status IN ('pending','planning','planned','executing','paused')  -- �
 再 `repo.patch(status="planning")`——所有状态变更统一走"校验 → 守卫落库"通道，
 不让任何代码裸 UPDATE；patch 守卫放行 pending（防的是终态覆盖），故迁移成功。
 
+### 6. patch() 为什么叫"原子打补丁"？"原子"指什么？
+
+**一句话**："打补丁" = 只更新调用方传入的局部字段（不整行重写）；"原子" = 状态检查与写入
+绑在同一条 SQL（WHERE 守卫直接写进 UPDATE），中间没有"先 SELECT 再 UPDATE"的时间窗——
+写入瞬间由数据库重新核对状态，要么整条生效、要么命中 0 行，不会被并发流程插队导致终态被覆盖。
+
+**三点拆开看**：
+
+1. **打补丁（局部更新）**：`patch(**fields)` 动态拼 `col = ?`，只改传进来的列 + 强制补
+   `updated_at`；不涉及整行重写。写终态（summary/outcome/stop_reason 收尾）必须走
+   `complete_goal` / `fail_task` 专用方法，不走 patch（patch 的 WHERE 会把终态挡掉）。
+
+2. **原子（防 TOCTOU 竞态）**：若实现成"先 `SELECT goal_status` 读状态 → Python 判断非终态 →
+   再 `UPDATE`"，两步之间有时间窗——期间并发流程（如续跑、超时判定）可能把行改成
+   `completed`，随后你的 UPDATE 就会把终态覆盖成 executing（"诈尸复活"，状态机不可逆性被破坏）。
+   patch 把守卫写进 SQL 本身：`UPDATE goals SET ... WHERE goal_status IN (PATCHABLE 5 态)
+   AND goal_id = ?`——检查与写入是数据库层面的一步，写入那一刻重新核对状态，行已是终态则
+   命中 0 行静默不写（不报错、不抛异常）。这就是"原子"：检查与写不可分割。
+
+3. **语义**："原子"是实现手段，"防终态覆盖"是目的。守卫集合 `PATCHABLE_GOAL_STATUSES` =
+   全部 5 个非终态（含 pending，M5 实测 bug 的教训）；被挡的是 `TERMINAL_GOAL_STATUSES`
+   3 态（completed/failed/cancelled）——终态只能进不能出。
+
 ## ⚠️ 风险点
 
 1. **patch WHERE 守卫含 pending**：防的是终态覆盖，不是拒绝 pending；勿把 pending 从
@@ -487,3 +510,4 @@ WHERE goal_status IN ('pending','planning','planned','executing','paused')  -- �
 ---
 _2026-10-02 新建：M5 文档（目录 + 流程图 + 成块代码解析 + Q&A）。_
 _2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_
+_2026-10-11 补充：Q&A #6（原子打补丁 = 局部字段更新 + 检查写入同一条 SQL，防 TOCTOU 竞态）。_

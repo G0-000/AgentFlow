@@ -1,0 +1,421 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-10-10T19:48:24.650Z",
+  "specification": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/candidate.json",
+    "sha256": "2e9a4a4da27ee78c8e729ddeb330b5f087d6d36ec2bcc1848d069c448b003499",
+    "bytes": 5524
+  },
+  "artifact": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+    "sha256": "07f3ce9177444c71851ec0c2be7fc50897c98800b905e57a144d6f3c18a05a2a",
+    "bytes": 762412
+  },
+  "stages": {
+    "validate": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": null,
+      "execution": "embedded-in-deliver",
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/candidate.json",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/main/AgentFlow",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "validate",
+        "specification": {
+          "sha256": "2e9a4a4da27ee78c8e729ddeb330b5f087d6d36ec2bcc1848d069c448b003499",
+          "bytes": 5524
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        }
+      }
+    },
+    "deliver": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 486,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/candidate.json",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/main/AgentFlow",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "7632c953-4103-4575-bd9c-d82fb4c17ad8",
+        "ok": true,
+        "command": "deliver",
+        "type": "architecture",
+        "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/candidate.json",
+        "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+        "specification": {
+          "sha256": "2e9a4a4da27ee78c8e729ddeb330b5f087d6d36ec2bcc1848d069c448b003499",
+          "bytes": 5524
+        },
+        "artifact": {
+          "sha256": "07f3ce9177444c71851ec0c2be7fc50897c98800b905e57a144d6f3c18a05a2a",
+          "bytes": 762412
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        },
+        "evidence": {
+          "verified": true,
+          "repository": "https://github.com/G0-000/AgentFlow",
+          "revision": "a20151258c2b21730e1fab464fbf20078cad00fe",
+          "references": 10
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    },
+    "check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 174,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "check",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+        "--require-provenance"
+      ],
+      "receipt": {
+        "ok": true,
+        "file": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+        "artifact": {
+          "sha256": "07f3ce9177444c71851ec0c2be7fc50897c98800b905e57a144d6f3c18a05a2a",
+          "bytes": 762412
+        },
+        "checks": [
+          {
+            "name": "single_svg",
+            "ok": true,
+            "details": [
+              "found 1 <svg> block(s)"
+            ]
+          },
+          {
+            "name": "finite_svg",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "orthogonal_arrows",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "label_route_clearance",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_crossings",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_corridors",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "container_border_runs",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "route_rhythm",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "legend_clearance",
+            "ok": true,
+            "details": []
+          }
+        ],
+        "composition": {
+          "schemaVersion": 1,
+          "profile": "showcase",
+          "status": "pass",
+          "summary": {
+            "errors": 0,
+            "warnings": 0
+          },
+          "metrics": {
+            "properCrossings": 0,
+            "resolvedCrossovers": 1,
+            "ambiguousCorridors": 0,
+            "arrowheadCollisions": 0,
+            "containerBorderRuns": 0,
+            "labelRouteClearanceIssues": 0,
+            "labelCanvasOverflowIssues": 0,
+            "minLabelRouteClearance": 8,
+            "desktopReadabilityIssues": 0,
+            "viewportHeightIssues": 0,
+            "minProjectedNodeTextPx": 6.585932721712538,
+            "maxBends": 3,
+            "routesOverSuggestedBends": 1,
+            "maxStretch": 1,
+            "routesOverSuggestedStretch": 0,
+            "minSegmentPx": 20,
+            "minInteriorSegmentPx": 20,
+            "shortSegmentCount": 0,
+            "shortEndpointSegmentCount": 0,
+            "shortInteriorSegmentCount": 0,
+            "microSegmentCount": 0
+          },
+          "suggestedLimits": {
+            "bendsPerRelationship": 2,
+            "stretch": 1.35,
+            "segmentPx": 16,
+            "microSegmentPx": 8
+          },
+          "routeReview": {
+            "crossings": [
+              {
+                "left": {
+                  "from": "cli",
+                  "to": "knowledge",
+                  "label": "构建服务并注入工具",
+                  "collectionIndex": 3,
+                  "artifactIndex": 4
+                },
+                "right": {
+                  "from": "knowledge",
+                  "to": "embedding",
+                  "label": "生成向量",
+                  "collectionIndex": 7,
+                  "artifactIndex": 8
+                },
+                "point": [
+                  1107.5,
+                  370
+                ],
+                "sharedNode": "knowledge"
+              }
+            ],
+            "detours": [
+              {
+                "relationship": {
+                  "from": "cli",
+                  "to": "agent",
+                  "label": "memory_ctx → system prompt",
+                  "collectionIndex": 2,
+                  "artifactIndex": 3
+                },
+                "bends": 3,
+                "stretch": 1
+              }
+            ]
+          },
+          "leadingSpace": {
+            "measured": true,
+            "emptyTopPx": 150,
+            "emptyTopRatio": 0.278,
+            "occupiedTop": 150,
+            "viewBoxTop": 0,
+            "canvasHeight": 540,
+            "typicalNodeHeight": 72,
+            "reviewSuggested": true
+          },
+          "desktopReadability": {
+            "budgetBasis": "recognized-declared-wide",
+            "readerContract": "declared-wide-v1",
+            "availableDiagramWidth": 1346,
+            "actualBudgetPx": 1346,
+            "actualReaderWidth": 1376,
+            "desiredReaderWidth": 1562.8125,
+            "viewportCap": 1376,
+            "limit": "viewport-cap",
+            "requestedTargetPx": 7.5,
+            "requestedTargetMet": false,
+            "hardFloorPx": 6,
+            "hardFloorMet": true,
+            "minimumOwner": {
+              "kind": "edge",
+              "id": null,
+              "from": "cli",
+              "to": "memory"
+            },
+            "minimumSourceTextPx": 8,
+            "minimumProjectedTextPx": 6.585932721712538,
+            "semanticTextCount": 27
+          },
+          "issues": []
+        },
+        "provenance": "current",
+        "deliveryReceiptId": "7632c953-4103-4575-bd9c-d82fb4c17ad8"
+      }
+    },
+    "browser-check": {
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 9,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "browser-check",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+        "--json",
+        "--require-provenance"
+      ],
+      "execution": "in-process",
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": false,
+        "command": "browser-check",
+        "evidenceKind": "automated-browser",
+        "status": "fail",
+        "visualReview": "not-requested",
+        "provenance": "current",
+        "deliveryReceiptId": "7632c953-4103-4575-bd9c-d82fb4c17ad8",
+        "artifact": {
+          "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+          "sha256": "07f3ce9177444c71851ec0c2be7fc50897c98800b905e57a144d6f3c18a05a2a",
+          "bytes": 762412
+        },
+        "state": {
+          "detail": "read",
+          "motion": "still"
+        },
+        "chrome": {
+          "status": "not-checked",
+          "executable": null
+        },
+        "diagnostics": [
+          {
+            "code": "viewer/evidence-path-conflict",
+            "severity": "error",
+            "message": "browser-check will not replace the existing unowned evidence path \"/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.browser-check.json\".",
+            "subject": {
+              "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+              "evidencePath": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.browser-check.json"
+            },
+            "evidence": {
+              "reason": {
+                "code": "ownership-artifact-mismatch"
+              }
+            },
+            "supportedFixes": [
+              "move the conflicting file aside, or choose a separate --out-dir, then rerun browser-check"
+            ]
+          }
+        ],
+        "containment": {
+          "status": "fail",
+          "policy": "fit-or-reader-declared-readable-vertical-scroll",
+          "viewports": []
+        },
+        "themeStates": {
+          "status": "fail",
+          "viewports": []
+        },
+        "readability": {
+          "status": "fail",
+          "minimumProjectedNodeTextPx": 6,
+          "viewports": []
+        },
+        "viewerChrome": {
+          "status": "fail",
+          "viewports": []
+        },
+        "captures": {
+          "status": "not-requested",
+          "screenshots": [],
+          "contactSheet": null
+        },
+        "sidecars": {
+          "receipt": "m3.browser-check.json",
+          "files": []
+        },
+        "error": "browser-check will not replace the existing unowned evidence path \"/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.browser-check.json\"."
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "viewer/evidence-path-conflict",
+      "severity": "error",
+      "message": "browser-check will not replace the existing unowned evidence path \"/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.browser-check.json\".",
+      "subject": {
+        "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+        "evidencePath": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.browser-check.json"
+      },
+      "evidence": {
+        "reason": {
+          "code": "ownership-artifact-mismatch"
+        }
+      },
+      "supportedFixes": [
+        "move the conflicting file aside, or choose a separate --out-dir, then rerun browser-check"
+      ]
+    }
+  ],
+  "evidence": {
+    "receipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.finalize.json",
+    "summaryReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.finalize-summary.json",
+    "browserCheckReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "failedStage": "browser-check",
+  "finishedAt": "2026-10-10T19:48:25.499Z",
+  "durationMs": 849,
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "cache-unavailable"
+  }
+}

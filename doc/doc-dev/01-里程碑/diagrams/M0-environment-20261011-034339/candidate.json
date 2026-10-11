@@ -1,0 +1,156 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "M0｜双包 Workspace 环境结构",
+    "locale": "zh-CN",
+    "output": "doc/doc-dev/01-里程碑/diagrams/M0-environment-20261011-034339/M0.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/G0-000/AgentFlow.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "a20151258c2b21730e1fab464fbf20078cad00fe"
+    }
+  },
+  "components": [
+    {
+      "id": "project",
+      "type": "external",
+      "label": "AgentFlow 项目根",
+      "sublabel": "config.yaml · data/",
+      "pos": [
+        40,
+        280
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/01-里程碑/M0-环境搭建.md",
+          "line": 20,
+          "end_line": 23
+        }
+      ]
+    },
+    {
+      "id": "workspace",
+      "type": "backend",
+      "label": "backend Workspace",
+      "sublabel": "uv sync 执行位置",
+      "pos": [
+        280,
+        280
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/pyproject.toml",
+          "line": 20,
+          "end_line": 26
+        },
+        {
+          "path": "doc/doc-dev/01-里程碑/M0-环境搭建.md",
+          "line": 23,
+          "end_line": 30
+        }
+      ]
+    },
+    {
+      "id": "app_pkg",
+      "type": "backend",
+      "label": "应用层包",
+      "sublabel": "agent-flow",
+      "pos": [
+        530,
+        180
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/pyproject.toml",
+          "line": 2,
+          "end_line": 15
+        }
+      ]
+    },
+    {
+      "id": "harness",
+      "type": "backend",
+      "label": "核心层包",
+      "sublabel": "agentflow-harness",
+      "pos": [
+        530,
+        380
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/pyproject.toml",
+          "line": 2,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "id": "cli_entry",
+      "type": "backend",
+      "label": "CLI 入口",
+      "sublabel": "agentflow.cli.main:main",
+      "pos": [
+        790,
+        380
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/pyproject.toml",
+          "line": 24,
+          "end_line": 26
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "project",
+      "to": "workspace",
+      "label": "工作区根目录",
+      "variant": "emphasis"
+    },
+    {
+      "from": "workspace",
+      "to": "app_pkg",
+      "label": "包含应用包"
+    },
+    {
+      "from": "workspace",
+      "to": "harness",
+      "label": "workspace member"
+    },
+    {
+      "from": "app_pkg",
+      "to": "harness",
+      "label": "workspace 依赖"
+    },
+    {
+      "from": "harness",
+      "to": "cli_entry",
+      "label": "注册命令"
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "specification": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/candidate.json",
+    "sha256": "2e9a4a4da27ee78c8e729ddeb330b5f087d6d36ec2bcc1848d069c448b003499",
+    "bytes": 5524
+  },
+  "artifact": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+    "sha256": "07f3ce9177444c71851ec0c2be7fc50897c98800b905e57a144d6f3c18a05a2a",
+    "bytes": 762412
+  },
+  "gates": {
+    "validate": "pass",
+    "deliver": "pass",
+    "check": "pass",
+    "browser-check": "fail"
+  },
+  "failedStage": "browser-check",
+  "diagnostics": [
+    {
+      "code": "viewer/evidence-path-conflict",
+      "severity": "error",
+      "message": "browser-check will not replace the existing unowned evidence path \"/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.browser-check.json\".",
+      "subject": {
+        "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+        "evidencePath": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.browser-check.json"
+      },
+      "evidence": {
+        "reason": {
+          "code": "ownership-artifact-mismatch"
+        }
+      },
+      "supportedFixes": [
+        "move the conflicting file aside, or choose a separate --out-dir, then rerun browser-check"
+      ]
+    }
+  ],
+  "diagnosticSummary": {
+    "total": 1,
+    "shown": 1,
+    "truncated": false
+  },
+  "evidence": {
+    "receipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.finalize.json",
+    "summaryReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.finalize-summary.json",
+    "browserCheckReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/m3.browser-check.json"
+  },
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "cache-unavailable"
+  },
+  "visualReview": "not-requested",
+  "durationMs": 849
+}

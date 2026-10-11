@@ -1,0 +1,223 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "M6｜扩展与治理基础组件（独立能力）",
+    "locale": "zh-CN",
+    "output": "doc/doc-dev/01-里程碑/diagrams/M6-extensions-governance-20261011-034339/M6.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/G0-000/AgentFlow.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "a20151258c2b21730e1fab464fbf20078cad00fe"
+    }
+  },
+  "components": [
+    {
+      "id": "config",
+      "type": "backend",
+      "label": "配置入口",
+      "sublabel": "MCP server config",
+      "pos": [
+        40,
+        180
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/config/mcp_config.py",
+          "line": 44,
+          "end_line": 80
+        }
+      ]
+    },
+    {
+      "id": "mcp",
+      "type": "backend",
+      "label": "MCP Tool Loader",
+      "sublabel": "可选加载外部工具",
+      "pos": [
+        300,
+        180
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/mcp/tools.py",
+          "line": 49,
+          "end_line": 87
+        }
+      ]
+    },
+    {
+      "id": "mcpserver",
+      "type": "external",
+      "label": "MCP Servers",
+      "sublabel": "stdio / HTTP 服务",
+      "pos": [
+        560,
+        180
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/mcp/client.py",
+          "line": 1,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "search",
+      "type": "backend",
+      "label": "Search Registry",
+      "sublabel": "provider 自动发现",
+      "pos": [
+        40,
+        480
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/community/web/registry.py",
+          "line": 43,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "provider",
+      "type": "external",
+      "label": "DDGS Provider",
+      "sublabel": "网络搜索适配器",
+      "pos": [
+        300,
+        480
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/community/web/providers/ddgs.py",
+          "line": 1,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "auth",
+      "type": "security",
+      "label": "JWT Auth Guard",
+      "sublabel": "校验 token · 401 语义",
+      "pos": [
+        560,
+        480
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/webui/auth.py",
+          "line": 80,
+          "end_line": 108
+        },
+        {
+          "path": "backend/packages/harness/agentflow/authz/http_guard.py",
+          "line": 59,
+          "end_line": 80
+        }
+      ]
+    },
+    {
+      "id": "trace",
+      "type": "backend",
+      "label": "Observability Recorder",
+      "sublabel": "显式记录 run / event",
+      "pos": [
+        820,
+        300
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/observability/recorder.py",
+          "line": 51,
+          "end_line": 103
+        }
+      ]
+    },
+    {
+      "id": "store",
+      "type": "database",
+      "label": "Trace Store",
+      "sublabel": "runs · trace_events",
+      "pos": [
+        1080,
+        300
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/observability/store.py",
+          "line": 45,
+          "end_line": 155
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "config",
+      "to": "mcp",
+      "label": "服务器配置"
+    },
+    {
+      "from": "mcp",
+      "to": "mcpserver",
+      "label": "get_tools()"
+    },
+    {
+      "from": "search",
+      "to": "provider",
+      "label": "搜索调用"
+    },
+    {
+      "from": "trace",
+      "to": "store",
+      "label": "显式写入"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "当前接入边界",
+      "items": [
+        "M6 验收的是可调用组件能力。",
+        "MCP loader、鉴权守卫和 trace 尚未自动挂入主 Agent/API 生命周期。"
+      ]
+    }
+  ]
+}

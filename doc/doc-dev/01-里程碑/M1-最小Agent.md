@@ -18,6 +18,8 @@
 
 ## 1.5 结构图（M1 一条对话怎么走完）
 
+交互式版本：[打开 M1 对话与检查点架构图](diagrams/M1-minimal-agent-20261011-034339/M1.html)（Archify 源文件：[candidate.json](diagrams/M1-minimal-agent-20261011-034339/candidate.json)）。
+
 ```
 你 > 输入 ──► cli/main.py（uv run agentflow）
               │  load_dotenv(.env)            密钥

@@ -1,0 +1,271 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "M3｜记忆与知识模块结构",
+    "locale": "zh-CN",
+    "output": "doc/doc-dev/01-里程碑/diagrams/M3-memory-knowledge-20261011-034339/M3.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/G0-000/AgentFlow.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "a20151258c2b21730e1fab464fbf20078cad00fe"
+    }
+  },
+  "components": [
+    {
+      "id": "cli",
+      "type": "backend",
+      "label": "CLI 装配",
+      "sublabel": "构建 memory / knowledge / Agent",
+      "pos": [
+        40,
+        320
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/cli/main.py",
+          "line": 308,
+          "end_line": 329
+        }
+      ]
+    },
+    {
+      "id": "memory",
+      "type": "backend",
+      "label": "MemoryFacade",
+      "sublabel": "跨会话记忆召回",
+      "pos": [
+        310,
+        150
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/memory/facade.py",
+          "line": 46,
+          "end_line": 75
+        }
+      ]
+    },
+    {
+      "id": "memoryrepo",
+      "type": "database",
+      "label": "MemoryRepository",
+      "sublabel": "记忆存储",
+      "pos": [
+        600,
+        150
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/persistence/memory_repositories.py",
+          "line": 1,
+          "end_line": 93
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "主 Agent",
+      "sublabel": "注入记忆提示词 · 调用工具",
+      "pos": [
+        600,
+        400
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/agents/lead_agent/agent.py",
+          "line": 66,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "tool",
+      "type": "backend",
+      "label": "Knowledge Tool",
+      "sublabel": "供 Agent 检索知识",
+      "pos": [
+        890,
+        400
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/tools/builtins/knowledge_tool.py",
+          "line": 1,
+          "end_line": 120
+        },
+        {
+          "path": "backend/packages/harness/agentflow/tools/tools.py",
+          "line": 61,
+          "end_line": 106
+        }
+      ]
+    },
+    {
+      "id": "knowledge",
+      "type": "backend",
+      "label": "KnowledgeService",
+      "sublabel": "文档创建 · 检索",
+      "pos": [
+        1160,
+        400
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/knowledge/service.py",
+          "line": 71,
+          "end_line": 125
+        }
+      ]
+    },
+    {
+      "id": "chunker",
+      "type": "backend",
+      "label": "Chunker",
+      "sublabel": "文档分块",
+      "pos": [
+        1160,
+        150
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/knowledge/chunker.py",
+          "line": 1,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "embedding",
+      "type": "cloud",
+      "label": "Embedding Registry",
+      "sublabel": "选择向量模型",
+      "pos": [
+        890,
+        150
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/knowledge/embedding/registry.py",
+          "line": 1,
+          "end_line": 100
+        }
+      ]
+    },
+    {
+      "id": "knowrepo",
+      "type": "database",
+      "label": "KnowledgeRepository",
+      "sublabel": "知识文档持久化",
+      "pos": [
+        1430,
+        400
+      ],
+      "size": [
+        165,
+        72
+      ],
+      "sources": [
+        {
+          "path": "backend/packages/harness/agentflow/persistence/knowledge_repositories.py",
+          "line": 1,
+          "end_line": 108
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "cli",
+      "to": "memory",
+      "label": "构建 · recall()"
+    },
+    {
+      "from": "memory",
+      "to": "memoryrepo",
+      "label": "读写记忆"
+    },
+    {
+      "from": "cli",
+      "to": "agent",
+      "label": "memory_ctx → system prompt",
+      "variant": "emphasis"
+    },
+    {
+      "from": "cli",
+      "to": "knowledge",
+      "label": "构建服务并注入工具"
+    },
+    {
+      "from": "agent",
+      "to": "tool",
+      "label": "知识检索调用",
+      "variant": "emphasis"
+    },
+    {
+      "from": "tool",
+      "to": "knowledge",
+      "label": "search(query)"
+    },
+    {
+      "from": "knowledge",
+      "to": "chunker",
+      "label": "切分文档"
+    },
+    {
+      "from": "knowledge",
+      "to": "embedding",
+      "label": "生成向量"
+    },
+    {
+      "from": "knowledge",
+      "to": "knowrepo",
+      "label": "存储 / 检索"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "emerald",
+      "title": "M3 集成",
+      "items": [
+        "CLI 启动时召回记忆并注入系统提示词。",
+        "知识库服务通过 knowledge 工具供 Agent 检索。"
+      ]
+    }
+  ]
+}

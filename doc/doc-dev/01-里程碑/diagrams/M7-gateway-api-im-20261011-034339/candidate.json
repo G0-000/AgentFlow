@@ -1,0 +1,224 @@
+{
+  "schema_version": 1,
+  "diagram_type": "architecture",
+  "meta": {
+    "title": "M7｜目标架构：Gateway API 与飞书渠道",
+    "locale": "zh-CN",
+    "output": "doc/doc-dev/01-里程碑/diagrams/M7-gateway-api-im-20261011-034339/M7.html",
+    "quality_profile": "showcase",
+    "repository": {
+      "url": "https://github.com/G0-000/AgentFlow.git",
+      "provider": "github",
+      "link_mode": "web",
+      "revision": "a20151258c2b21730e1fab464fbf20078cad00fe"
+    }
+  },
+  "components": [
+    {
+      "id": "client",
+      "type": "external",
+      "label": "外部客户端",
+      "sublabel": "REST / SSE",
+      "pos": [
+        40,
+        260
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M7-验收清单.md",
+          "line": 11,
+          "end_line": 16
+        }
+      ]
+    },
+    {
+      "id": "feishu",
+      "type": "external",
+      "label": "飞书用户",
+      "sublabel": "事件回调",
+      "pos": [
+        40,
+        500
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M7-验收清单.md",
+          "line": 15,
+          "end_line": 16
+        }
+      ]
+    },
+    {
+      "id": "gateway",
+      "type": "backend",
+      "label": "Gateway App",
+      "sublabel": "FastAPI 应用装配（规划）",
+      "pos": [
+        300,
+        360
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M7-验收清单.md",
+          "line": 20,
+          "end_line": 27
+        }
+      ]
+    },
+    {
+      "id": "routers",
+      "type": "backend",
+      "label": "API Routers",
+      "sublabel": "models · runs · threads",
+      "pos": [
+        560,
+        240
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M7-验收清单.md",
+          "line": 22,
+          "end_line": 24
+        }
+      ]
+    },
+    {
+      "id": "channel",
+      "type": "backend",
+      "label": "Feishu Channel",
+      "sublabel": "回调 → Agent → 回复（规划）",
+      "pos": [
+        560,
+        500
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M7-验收清单.md",
+          "line": 25,
+          "end_line": 26
+        }
+      ]
+    },
+    {
+      "id": "agent",
+      "type": "backend",
+      "label": "AgentFlow Harness",
+      "sublabel": "复用 M1–M6 核心能力",
+      "pos": [
+        820,
+        360
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M7-验收清单.md",
+          "line": 47,
+          "end_line": 47
+        }
+      ]
+    },
+    {
+      "id": "storage",
+      "type": "database",
+      "label": "SQLite",
+      "sublabel": "模型配置 · 会话数据",
+      "pos": [
+        1080,
+        360
+      ],
+      "size": [
+        160,
+        70
+      ],
+      "sources": [
+        {
+          "path": "doc/doc-dev/05-验收体系/M7-验收清单.md",
+          "line": 27,
+          "end_line": 27
+        },
+        {
+          "path": "doc/doc-dev/05-验收体系/M7-验收清单.md",
+          "line": 44,
+          "end_line": 45
+        }
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "from": "client",
+      "to": "gateway",
+      "label": "HTTP / SSE",
+      "variant": "emphasis"
+    },
+    {
+      "from": "feishu",
+      "to": "channel",
+      "label": "事件回调",
+      "variant": "emphasis"
+    },
+    {
+      "from": "gateway",
+      "to": "routers",
+      "label": "路由分发"
+    },
+    {
+      "from": "gateway",
+      "to": "channel",
+      "label": "渠道装配"
+    },
+    {
+      "from": "routers",
+      "to": "agent",
+      "label": "run 请求 / stream"
+    },
+    {
+      "from": "channel",
+      "to": "agent",
+      "label": "消息转发"
+    },
+    {
+      "from": "agent",
+      "to": "storage",
+      "label": "会话状态"
+    },
+    {
+      "from": "routers",
+      "to": "storage",
+      "label": "模型配置 CRUD"
+    }
+  ],
+  "cards": [
+    {
+      "dot": "amber",
+      "title": "状态说明",
+      "items": [
+        "本图依据 M7 验收需求绘制，属于目标架构。",
+        "Gateway、路由、飞书渠道目前尚未实现。"
+      ]
+    }
+  ]
+}

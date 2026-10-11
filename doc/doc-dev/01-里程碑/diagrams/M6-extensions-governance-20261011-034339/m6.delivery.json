@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "d6f1503b-18d7-4262-b071-de81bf9c92fc",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M6-extensions-governance-20261011-034339/candidate.json",
+  "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M6-extensions-governance-20261011-034339/M6.html",
+  "specification": {
+    "sha256": "4d031c288dd8915bece10ddc234d93fc8b5ec5e867cc5bbe9b1440da44bc6cf5",
+    "bytes": 4552
+  },
+  "artifact": {
+    "sha256": "dba854371e8390d332daffdcd5bd7c28788d6d445c159d0e08cb1489e036108e",
+    "bytes": 755833
+  }
+}

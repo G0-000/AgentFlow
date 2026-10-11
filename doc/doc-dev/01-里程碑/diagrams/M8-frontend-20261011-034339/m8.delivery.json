@@ -1,0 +1,17 @@
+{
+  "schemaVersion": 1,
+  "receiptId": "bed023d3-4661-43ea-851d-0ff6832e2e56",
+  "status": "current",
+  "command": "deliver",
+  "type": "architecture",
+  "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M8-frontend-20261011-034339/candidate.json",
+  "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M8-frontend-20261011-034339/M8.html",
+  "specification": {
+    "sha256": "8b70d0b6cc28104d4190800e484d1d5c9170e0da9aa88e978302f89e43b6f081",
+    "bytes": 4149
+  },
+  "artifact": {
+    "sha256": "a2e7ad03497f182c54e869b706c2b4c873908d0fd3725961ebbb6521f0699ab1",
+    "bytes": 756229
+  }
+}

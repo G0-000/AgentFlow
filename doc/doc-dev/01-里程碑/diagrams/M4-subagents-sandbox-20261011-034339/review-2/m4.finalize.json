@@ -1,0 +1,384 @@
+{
+  "schemaVersion": 1,
+  "ok": false,
+  "command": "finalize",
+  "status": "fail",
+  "type": "architecture",
+  "quality": "showcase",
+  "startedAt": "2026-10-10T19:49:10.193Z",
+  "specification": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/candidate.json",
+    "sha256": "ef2a8685bd114ffd1a10447b98bea85ea71a32f64a1efbddc8a29434a863a777",
+    "bytes": 4626
+  },
+  "artifact": {
+    "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+    "sha256": "0d36e7fc7f457548aafd64fc6146a1fdc8f3b8ee25058fef3da868a6ff0ea51a",
+    "bytes": 756364
+  },
+  "stages": {
+    "validate": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": null,
+      "execution": "embedded-in-deliver",
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/candidate.json",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/main/AgentFlow",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": true,
+        "command": "validate",
+        "specification": {
+          "sha256": "ef2a8685bd114ffd1a10447b98bea85ea71a32f64a1efbddc8a29434a863a777",
+          "bytes": 4626
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        }
+      }
+    },
+    "deliver": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 445,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "deliver",
+        "architecture",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/candidate.json",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+        "--quality",
+        "showcase",
+        "--repo-root",
+        "/Users/main/AgentFlow",
+        "--json"
+      ],
+      "receipt": {
+        "schemaVersion": 1,
+        "receiptId": "592a9a48-ae17-44f7-8ea1-1f0f4c3c9997",
+        "ok": true,
+        "command": "deliver",
+        "type": "architecture",
+        "input": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/candidate.json",
+        "output": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+        "specification": {
+          "sha256": "ef2a8685bd114ffd1a10447b98bea85ea71a32f64a1efbddc8a29434a863a777",
+          "bytes": 4626
+        },
+        "artifact": {
+          "sha256": "0d36e7fc7f457548aafd64fc6146a1fdc8f3b8ee25058fef3da868a6ff0ea51a",
+          "bytes": 756364
+        },
+        "validation": {
+          "checksPassed": 9,
+          "checkCount": 9,
+          "compositionProfile": "showcase",
+          "compositionStatus": "pass",
+          "errors": 0,
+          "warnings": 0
+        },
+        "evidence": {
+          "verified": true,
+          "repository": "https://github.com/G0-000/AgentFlow",
+          "revision": "a20151258c2b21730e1fab464fbf20078cad00fe",
+          "references": 9
+        },
+        "update": {
+          "status": "unavailable",
+          "installedVersion": null,
+          "availableVersion": null,
+          "releaseNotes": null,
+          "checkedAt": null,
+          "source": null,
+          "noticeRequired": false,
+          "noticeText": null,
+          "reason": "disabled"
+        }
+      }
+    },
+    "check": {
+      "status": "pass",
+      "exitCode": 0,
+      "durationMs": 168,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "check",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+        "--require-provenance"
+      ],
+      "receipt": {
+        "ok": true,
+        "file": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+        "artifact": {
+          "sha256": "0d36e7fc7f457548aafd64fc6146a1fdc8f3b8ee25058fef3da868a6ff0ea51a",
+          "bytes": 756364
+        },
+        "checks": [
+          {
+            "name": "single_svg",
+            "ok": true,
+            "details": [
+              "found 1 <svg> block(s)"
+            ]
+          },
+          {
+            "name": "finite_svg",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "orthogonal_arrows",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "label_route_clearance",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_crossings",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "relationship_corridors",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "container_border_runs",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "route_rhythm",
+            "ok": true,
+            "details": []
+          },
+          {
+            "name": "legend_clearance",
+            "ok": true,
+            "details": []
+          }
+        ],
+        "composition": {
+          "schemaVersion": 1,
+          "profile": "showcase",
+          "status": "pass",
+          "summary": {
+            "errors": 0,
+            "warnings": 0
+          },
+          "metrics": {
+            "properCrossings": 0,
+            "resolvedCrossovers": 0,
+            "ambiguousCorridors": 0,
+            "arrowheadCollisions": 0,
+            "containerBorderRuns": 0,
+            "labelRouteClearanceIssues": 0,
+            "labelCanvasOverflowIssues": 0,
+            "minLabelRouteClearance": 42.3,
+            "desktopReadabilityIssues": 0,
+            "viewportHeightIssues": 0,
+            "minProjectedNodeTextPx": 6.585932721712538,
+            "maxBends": 2,
+            "routesOverSuggestedBends": 0,
+            "maxStretch": 1.083,
+            "routesOverSuggestedStretch": 0,
+            "minSegmentPx": 24,
+            "minInteriorSegmentPx": 160,
+            "shortSegmentCount": 0,
+            "shortEndpointSegmentCount": 0,
+            "shortInteriorSegmentCount": 0,
+            "microSegmentCount": 0
+          },
+          "suggestedLimits": {
+            "bendsPerRelationship": 2,
+            "stretch": 1.35,
+            "segmentPx": 16,
+            "microSegmentPx": 8
+          },
+          "routeReview": {
+            "crossings": [],
+            "detours": []
+          },
+          "leadingSpace": {
+            "measured": true,
+            "emptyTopPx": 160,
+            "emptyTopRatio": 0.241,
+            "occupiedTop": 160,
+            "viewBoxTop": 0,
+            "canvasHeight": 664,
+            "typicalNodeHeight": 72,
+            "reviewSuggested": true
+          },
+          "desktopReadability": {
+            "budgetBasis": "recognized-declared-wide",
+            "readerContract": "declared-wide-v1",
+            "availableDiagramWidth": 1346,
+            "actualBudgetPx": 1346,
+            "actualReaderWidth": 1376,
+            "desiredReaderWidth": 1562.8125,
+            "viewportCap": 1376,
+            "limit": "viewport-cap",
+            "requestedTargetPx": 7.5,
+            "requestedTargetMet": false,
+            "hardFloorPx": 6,
+            "hardFloorMet": true,
+            "minimumOwner": {
+              "kind": "edge",
+              "id": null,
+              "from": "lead",
+              "to": "dispatch"
+            },
+            "minimumSourceTextPx": 8,
+            "minimumProjectedTextPx": 6.585932721712538,
+            "semanticTextCount": 20
+          },
+          "issues": []
+        },
+        "provenance": "current",
+        "deliveryReceiptId": "592a9a48-ae17-44f7-8ea1-1f0f4c3c9997"
+      }
+    },
+    "browser-check": {
+      "status": "fail",
+      "exitCode": 1,
+      "durationMs": 17,
+      "command": [
+        "/opt/homebrew/Cellar/node/26.0.0/bin/node",
+        "/Users/main/.codex/skills/archify/bin/archify.mjs",
+        "browser-check",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+        "--json",
+        "--require-provenance",
+        "--out-dir",
+        "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/review-2"
+      ],
+      "execution": "in-process",
+      "receipt": {
+        "schemaVersion": 1,
+        "ok": false,
+        "command": "browser-check",
+        "evidenceKind": "automated-browser",
+        "status": "fail",
+        "visualReview": "not-requested",
+        "provenance": "current",
+        "deliveryReceiptId": "592a9a48-ae17-44f7-8ea1-1f0f4c3c9997",
+        "artifact": {
+          "path": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html",
+          "sha256": "0d36e7fc7f457548aafd64fc6146a1fdc8f3b8ee25058fef3da868a6ff0ea51a",
+          "bytes": 756364
+        },
+        "state": {
+          "detail": "read",
+          "motion": "still"
+        },
+        "chrome": {
+          "status": "available",
+          "executable": "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome"
+        },
+        "diagnostics": [
+          {
+            "code": "viewer/browser-check-runtime",
+            "severity": "error",
+            "message": "browser-check could not complete its Chrome inspection.",
+            "subject": {
+              "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html"
+            },
+            "evidence": {
+              "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=59634, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+            },
+            "supportedFixes": [
+              "resolve the reported Chrome inspection error, then rerun browser-check"
+            ]
+          }
+        ],
+        "containment": {
+          "status": "fail",
+          "policy": "fit-or-reader-declared-readable-vertical-scroll",
+          "viewports": []
+        },
+        "themeStates": {
+          "status": "fail",
+          "viewports": []
+        },
+        "readability": {
+          "status": "fail",
+          "minimumProjectedNodeTextPx": 6,
+          "viewports": []
+        },
+        "viewerChrome": {
+          "status": "fail",
+          "viewports": []
+        },
+        "captures": {
+          "status": "not-requested",
+          "screenshots": [],
+          "contactSheet": null
+        },
+        "sidecars": {
+          "directory": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/review-2",
+          "receipt": "m4.browser-check.json",
+          "files": []
+        },
+        "error": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=59634, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      }
+    }
+  },
+  "diagnostics": [
+    {
+      "code": "viewer/browser-check-runtime",
+      "severity": "error",
+      "message": "browser-check could not complete its Chrome inspection.",
+      "subject": {
+        "artifact": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/M4.html"
+      },
+      "evidence": {
+        "reason": "Chrome DevTools read pipe failed: stream ended\nChrome process: still running.\nChrome transport: Node v26.0.0, libuv 1.52.1, darwin; pid=59634, exitCode=null, signalCode=null.\nChrome read pipe: readable=false, ended=true, destroyed=false, receivedBytes=0, messages=0, bufferedBytes=0.\nChrome write pipe: writable=true, ended=false, destroyed=false, completedWrites=1, writtenBytes=50, bufferedBytes=0."
+      },
+      "supportedFixes": [
+        "resolve the reported Chrome inspection error, then rerun browser-check"
+      ]
+    }
+  ],
+  "evidence": {
+    "receipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/review-2/m4.finalize.json",
+    "summaryReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/review-2/m4.finalize-summary.json",
+    "browserCheckReceipt": "/Users/main/AgentFlow/doc/doc-dev/01-里程碑/diagrams/M4-subagents-sandbox-20261011-034339/review-2/m4.browser-check.json"
+  },
+  "visualReview": "not-requested",
+  "failedStage": "browser-check",
+  "finishedAt": "2026-10-10T19:49:10.958Z",
+  "durationMs": 764,
+  "update": {
+    "status": "unavailable",
+    "installedVersion": null,
+    "availableVersion": null,
+    "releaseNotes": null,
+    "checkedAt": null,
+    "source": null,
+    "noticeRequired": false,
+    "noticeText": null,
+    "reason": "cache-unavailable"
+  }
+}
