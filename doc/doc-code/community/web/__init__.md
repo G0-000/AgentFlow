@@ -41,6 +41,27 @@ agentflow/community/                     ← community/ 顶层包
 
 ## 🎯 实用场景
 
+### 端到端场景：Agent 会话里的一次网页搜索（先看这条）
+
+> 本目录的全部代码，最终只为一个目的：**Agent 在会话里调搜索，把网页/API 返回的结构化数据喂给 Agent**。
+> 全程没有"打开网页"——搜索结果是文本数据进 LLM 上下文，模型自己组织回答。
+
+```
+你（REPL）：帮我查下"2026 杭州亚运会"相关新闻
+    ↓ Agent 决定用搜索工具
+上层工具 → registry.resolve_search_backend()      ← 选中 ddgs（自动序第一，免费无 key）
+        → get_provider("ddgs").search("2026 杭州亚运会", limit=5)
+        → DDGSWebSearchProvider.search             ← DuckDuckGo 真实搜索（auto→bing 兜底）
+        → {"success": True, "data": {"web": [{title,url,description,position} × 5]}}
+        ↓ 结构化数据回给 Agent（进 LLM 上下文）
+Agent：基于 5 条摘要组织回答，附链接；若 success=False 则把 error 文本回给模型/用户
+```
+
+**一句话定位**：`community/web/` = "Agent 的搜索能力插座"（调网页搜索/API → 数据进对话）；
+`community/` 顶层将来平行扩 `github/`/`slack/` 是"Agent 调其他平台 API 的插座"，与搜索平行、互不增强。
+
+### 开发者场景
+
 1. **接入新搜索后端**：在 `community/web/providers/` 新增 `xxx.py`，实现 `WebSearchProvider` 子类，
    在 `registry.ensure_providers_loaded` 里注册即可（上层零改动）。
 2. **上层取搜索能力**：`from agentflow.community.web.registry import resolve_search_backend, get_provider`
@@ -55,3 +76,4 @@ agentflow/community/                     ← community/ 顶层包
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_
+_2026-10-12 补充：实用场景重排——新增"Agent 会话端到端场景"（搜索=调 API 返数据给 Agent，非打开网页）。_

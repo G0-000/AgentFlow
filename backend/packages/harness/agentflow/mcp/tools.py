@@ -36,6 +36,8 @@
 from __future__ import annotations
 
 import asyncio
+import atexit
+import concurrent.futures
 import logging
 from typing import Any
 
@@ -44,6 +46,54 @@ from agentflow.config.mcp_config import load_mcp_servers
 from agentflow.mcp.client import build_servers_config
 
 logger = logging.getLogger(__name__)
+
+# 全局线程池：async 环境里被同步调用时的兜底提交池（照原版 _SYNC_TOOL_EXECUTOR）
+_SYNC_TOOL_EXECUTOR = concurrent.futures.ThreadPoolExecutor(
+    max_workers=10, thread_name_prefix="mcp-sync-tool"
+)
+atexit.register(lambda: _SYNC_TOOL_EXECUTOR.shutdown(wait=False))
+
+
+def _make_sync_tool_wrapper(coro: Any, tool_name: str) -> Any:
+    """给 async-only 的 MCP 工具注入同步调用入口（照原版 _make_sync_tool_wrapper）。
+
+    langchain-mcp-adapters 生成的工具只有 coroutine（无 func），同步执行路径
+    （CLI REPL）调它报 "StructuredTool does not support sync invocation"。
+
+    核心规则：绝不在已有运行中的事件循环上调用 asyncio.run——
+    用每次调用的隔离 loop（fresh loop）；若外层已有 running loop
+    （未来 gateway 异步环境），提交到线程池里跑隔离 loop。
+    """
+
+    def _run_coro_on_fresh_loop(awaitable: Any) -> Any:
+        loop = asyncio.new_event_loop()
+        try:
+            return loop.run_until_complete(awaitable)
+        finally:
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            except Exception:  # noqa: BLE001 —— 关 loop 的清理失败可忽略
+                pass
+            loop.close()
+
+    def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+        try:
+            if loop is not None and loop.is_running():
+                future = _SYNC_TOOL_EXECUTOR.submit(
+                    _run_coro_on_fresh_loop,
+                    coro(*args, **kwargs),
+                )
+                return future.result()
+            return _run_coro_on_fresh_loop(coro(*args, **kwargs))
+        except Exception as exc:  # noqa: BLE001 —— 桥接失败向上抛，由工具调用层容错
+            logger.error("Error invoking MCP tool '%s' via sync wrapper: %s", tool_name, exc)
+            raise
+
+    return sync_wrapper
 
 
 def load_mcp_tools(cfg: AppConfig | None = None) -> list[Any]:
@@ -77,7 +127,16 @@ def load_mcp_tools(cfg: AppConfig | None = None) -> list[Any]:
             # langchain-mcp-adapters 0.1.0：MultiServerMCPClient 不可作 context manager，
             # 正确用法 = 直接 get_tools()（0.1.0 起不支持 async with / __aexit__）
             client = MultiServerMCPClient(servers_config)
-            return await client.get_tools()
+            tools = await client.get_tools()
+            # async-only 工具注入同步桥接（照原版 _load_tools_from_server）：
+            # MCP 工具只带 coroutine、无 func → 同步执行路径（CLI REPL）调用报
+            # "StructuredTool does not support sync invocation" → 注入 sync_wrapper
+            for tool in tools:
+                if getattr(tool, "func", None) is None and getattr(
+                    tool, "coroutine", None
+                ) is not None:
+                    tool.func = _make_sync_tool_wrapper(tool.coroutine, tool.name)
+            return tools
 
         tools = asyncio.run(_collect())
         logger.info("Loaded %d MCP tool(s) from %d server(s)", len(tools), len(servers_config))

@@ -347,7 +347,11 @@ class GoalEngine:
 
 &#x20;   """长任务引擎：计划生成 → 拓扑排序 → 逐步执行 → 汇总报告（同步）。"""
 
-&#x20;   def \_\_init\_\_(self, agent, model, goal\_repo, service: GoalStateService | None = None):
+&#x20;   def \_\_init\_\_(
+
+&#x20;       self, agent, model, goal\_repo, service: GoalStateService | None = None
+
+&#x20;   ):
 
 &#x20;       """装配：agent=主 Agent（sync invoke），model=判定模型，goal\_repo=落库。
 
@@ -572,11 +576,15 @@ executing 态被 SIGKILL 后重进 resume 不重复迁移。
 
 &#x20;           if step is None:
 
-&#x20;               # 全部走完 → 汇总完工
+&#x20;               # 全部走完 → 汇总完工 summary：摘要 概要
 
 &#x20;               summary = self.\_build\_summary(goal, steps)
 
-&#x20;               self.\_service.complete\_task(goal.goal\_id, summary=summary, outcome="done")
+&#x20;               self.\_service.complete\_task(
+
+&#x20;                   goal.goal\_id, summary=summary, outcome="done"
+
+&#x20;               )
 
 &#x20;               print(f"\n\[长任务完成] {summary}")
 
@@ -1016,3 +1024,4 @@ text = \_ai\_text(resp)              # → judge 判定 complete/continue
 \_2026-10-11 追加：Q\&A 5（agent.invoke = 执行不是加载；resp 最终状态 dict + *ai\_text 取最后一条 AI 文本；checkpointer 落消息即 R3 依据）。*
 
 *2026-10-11 追加：Q\&A 6（goal 级 vs step 级两个状态机：step 退回 pending ≠ 任务退回 planning/planned，goal executing 纹丝不动）。*
+*2026-10-12 同步：块 3 `__init__` 按源码 3286dc7 ruff 折行改三行；块 6 注释补「summary：摘要 概要」+ `complete_task` 折三行（纯格式，语义零变化）。*

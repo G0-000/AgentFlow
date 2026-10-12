@@ -31,7 +31,7 @@
 │        workspace → …）                                      │
 │                                                             │
 │ get_available_tools() -> list[BaseTool]                     │
-│   对外入口：输出最终挂载给 Agent 使用的工具列表             │
+│   对外入口：返回内置工具目录（最终挂载由装配层合并 MCP）     │
 └────────────────────────────────────────────────────────────┘
 ```
 
@@ -67,7 +67,8 @@
 
 ## 🎯 实用场景
 
-1. Agent 启动装配：get_available_tools() 输出最终挂载给 Agent 的工具列表（CLI/未来 gateway 共用）
+1. Agent 启动装配：get_available_tools() 输出**内置工具目录**；最终挂载由装配层合并 MCP 工具
+   （main.py：`tools = get_available_tools() + load_mcp_tools(cfg)`）
 2. 工具开发回归：新增工具后测试去重与 tier 排序是否生效
 3. 性能敏感场景：lru_cache 延迟加载避免启动时 import 全部工具模块（requests 等重依赖）
 4. 原版对齐演示：对照 EvoFlow 原版 tools.py（566 行）理解"收集-去重-排序"管线
@@ -80,7 +81,7 @@
 CLI 启动 / Agent 装配（request：get_available_tools()）
 │
 ▼
-get_available_tools()          ← 对外入口：要最终挂载给 Agent 的工具列表
+get_available_tools()          ← 对外入口：内置工具目录（MCP 由装配层单独合并）
 │
 ▼
 list(get_builtin_tools())      ← 先把内置工具元组转 list
@@ -256,7 +257,7 @@ def _finalize_tool_catalog(tools: list[BaseTool]) -> list[BaseTool]:
 
 ```python
 def get_available_tools() -> list[BaseTool]:
-    """返回最终给 Agent 挂载的工具列表（M2 = 全部内置工具）。"""
+    """返回内置工具目录（M2 起；最终挂载由装配层合并 MCP 工具）。"""
     return _finalize_tool_catalog(list(get_builtin_tools()))
 ```
 

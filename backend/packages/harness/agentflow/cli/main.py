@@ -17,7 +17,8 @@
 # │   ├─ load_config()          ← 读 config.yaml → AppConfig    │
 # │   ├─ init_db(db_path)       ← 建表（sessions 等）            │
 # │   ├─ create_sqlite_checkpointer(db_path) ← 图状态检查点      │
-# │   ├─ get_available_tools()  ← 工具目录（M2，5 个）            │
+# │   ├─ get_available_tools()  ← 内置工具目录（M2→M4，9 个）    │
+# │   ├─ load_mcp_tools()       ← MCP 外部工具（M6→M7 接线）     │
 # │   ├─ 中间件 2 个            ← 标题/线程目录（M2）            │
 # │   ├─ create_chat_model(cfg) ← 模型工厂 → ChatOpenAI          │
 # │   ├─ make_lead_agent(...)   ← 构建主 Agent（带持久化）       │
@@ -79,6 +80,9 @@ from agentflow.config.paths import default_db_path
 
 # M3 域：记忆门面 / 知识库服务 / 技能加载 / 工具注入
 from agentflow.knowledge.service import KnowledgeService
+
+# M6→M7 接线：MCP 外部服务器工具（可选，config.yaml mcp_servers 段）
+from agentflow.mcp.tools import load_mcp_tools
 from agentflow.memory.facade import MemoryFacade
 
 # 模型域（工厂）
@@ -282,6 +286,14 @@ def main() -> None:
 
     # ⑥ 工具（M2→M4）：工具目录全量工具（9 个，含沙箱终端/文件/子代理派发）
     tools = get_available_tools()
+
+    # M6→M7 接线：MCP 外部服务器工具（可选，config.yaml mcp_servers 段）。
+    #   _raw_mcp_servers 用相对路径 "config.yaml"，启动目录不同会找不到 →
+    #   先 setdefault AGENTFLOW_CONFIG_PATH 指向项目根（P-014 同款定位）；
+    #   连接失败由 load_mcp_tools 兜底为 []（warning + 跳过，不阻断装配）。
+    os.environ.setdefault("AGENTFLOW_CONFIG_PATH", str(project_root / "config.yaml"))
+    mcp_tools = load_mcp_tools(cfg)
+    tools = tools + mcp_tools
 
     # M4：沙箱装配——本地目录沙箱（子代理/终端操作落在项目 .sandbox 内，
     # **1 进程 = 1 provider = 1 沙箱 = 1 根目录**。多会话多沙箱（按 thread_id 区分目录）是 `acquire(thread_id)` 参数预留的方向，M4 未实现。

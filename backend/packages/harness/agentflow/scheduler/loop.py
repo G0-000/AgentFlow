@@ -29,11 +29,15 @@
 # ✅ 对外导出
 # 1. AutomationScheduler: 定时调度器（启停 daemon tick 线程）
 # 🔒 内部私有函数
-# 1. _parse_iso: 容错解析 scheduled_at（去时区，与 naive now 比较）
+# 1. _parse_iso: 容错解析 scheduled_at（去时区，与本地 naive now 比较）
 # ----------------------------------------------------------------------------
 # ⚠️ 【五、修改注意事项 / 风险点】
 # 1. _fired_minute 是进程内内存态：重启后不保留，靠 once_fired 落库兜底
 # 2. tick 内异常静默吞掉——daemon 线程崩了会静默停摆，故每个任务单独 try
+# 3. 时间语义（P-023）：tick 缺省时钟 = 本地 naive 墙钟（datetime.now()），
+#    cron 串与 --at 均按用户本地墙钟解释；注入 aware 时钟先转本地 naive，
+#    勿再退回 datetime.now(UTC)（旧代码 aware-naive 相减 TypeError 被吞，
+#    once 任务生产路径永不触发；且 UTC 墙钟与本地 cron 错配 8 小时）
 # ============================================================================
 
 from __future__ import annotations
@@ -41,7 +45,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 
 from agentflow.scheduler.cron import cron_matches_at
 
@@ -97,9 +101,16 @@ class AutomationScheduler:
     def _tick(self, now: datetime | None = None) -> None:
         """扫一遍 active 任务，命中者投队列。
 
-        now 可注入（测试用固定时刻）；缺省取本地当前时间。
+        now 可注入（测试用固定时刻，naive 本地墙钟）；缺省取本地当前时间。
+
+        时间语义（P-023）：cron 串与 --at 都是用户本地墙钟，故缺省时钟统一为
+        本地 naive；注入 aware 时钟时先转本地 naive，与 _parse_iso 剥 tz 后的
+        scheduled_at 同域比较，杜绝 aware-naive 直接相减的 TypeError。
         """
-        now = now or datetime.now(UTC)
+        now = now or datetime.now()  # noqa: DTZ005 —— 刻意本地 naive 墙钟（P-023 语义）
+        if now.tzinfo is not None:
+            # 容错：注入 aware 时钟（如旧 datetime.now(UTC)）先转本地 naive
+            now = now.astimezone().replace(tzinfo=None)
         minute_key = now.strftime("%Y%m%d%H%M")
 
         try:

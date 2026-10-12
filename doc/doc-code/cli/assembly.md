@@ -46,8 +46,16 @@ def main() -> None:
     # ⑤ 检查点：图状态 → SQLite（同一 thread_id 恢复对话）
     checkpointer = create_sqlite_checkpointer(db_path)
 
-    # ⑥ 工具（M2→M4）：工具目录全量工具（9 个，含沙箱终端/文件/子代理派发）
+    # ⑥ 工具（M2→M4）：内置工具目录全量工具（9 个，含沙箱终端/文件/子代理派发）
     tools = get_available_tools()
+
+    # M6→M7 接线：MCP 外部服务器工具（可选，config.yaml mcp_servers 段）。
+    #   _raw_mcp_servers 用相对路径 "config.yaml"，启动目录不同会找不到 →
+    #   先 setdefault AGENTFLOW_CONFIG_PATH 指向项目根（P-014 同款定位）；
+    #   连接失败由 load_mcp_tools 兜底为 []（warning + 跳过，不阻断装配）。
+    os.environ.setdefault("AGENTFLOW_CONFIG_PATH", str(project_root / "config.yaml"))
+    mcp_tools = load_mcp_tools(cfg)
+    tools = tools + mcp_tools
 
     # M4：沙箱装配——本地目录沙箱（子代理/终端操作落在项目 .sandbox 内，
     # **1 进程 = 1 provider = 1 沙箱 = 1 根目录**。多会话多沙箱（按 thread_id 区分目录）是 `acquire(thread_id)` 参数预留的方向，M4 未实现。
@@ -140,7 +148,7 @@ def main() -> None:
 | **M5 分流** | `args.command=="automation"` → `_handle_automation_command` + `return` | 轻量装配，不进 REPL（详见块 4·分流） |
 | ③ `load_config` | 读 `config.yaml` | 缺 API key → 打印提示退出 |
 | ④⑤ `init_db` + `create_sqlite_checkpointer` | 持久化底座 | 建表（业务）+ 图状态检查点（LangGraph 自管） |
-| ⑥ `get_available_tools` | 工具目录 | 9 个工具 |
+| ⑥ `get_available_tools` + `load_mcp_tools` | 工具目录 | 9 个内置 + MCP 外部工具合并（M6→M7 接线） |
 | **M4** | 沙箱/审计/派发装配 | `set_sandbox_provider` + 审计 repo + `configure_dispatch_service`（详见块 4-M4） |
 | ⑦ 中间件 | `[TitleMiddleware, ThreadDataMiddleware]` | 自动标题 + 线程数据目录 |
 | ⑧ 模型 + M3 记忆/知识 | `create_chat_model` + `MemoryFacade`/`KnowledgeService`/`configure_knowledge_service` | 建模型；记忆/知识挂 knowledge 工具 |
@@ -152,6 +160,7 @@ def main() -> None:
 **落库要点/补充**：
 
 - `Path(__file__).resolve().parents[5]` 向上 5 级定位项目根，从任何目录启动都找得到 `config.yaml`（P-014）；`load_dotenv(project_root/".env")` 必须在 `load_config` **之前**——`config.yaml` 里 `${DEEPSEEK_API_KEY}` 这类占位由 models_yaml 在此之后展开。
+- **M6→M7 MCP 接线**：`os.environ.setdefault("AGENTFLOW_CONFIG_PATH", str(project_root/"config.yaml"))` 必须先于 `load_mcp_tools(cfg)`——`_raw_mcp_servers` 用相对路径 `"config.yaml"`，启动目录不同会找不到；`tools = tools + mcp_tools` 把 MCP 工具并进最终挂载列表（同名 read_file/write_file 与内置共存属已知隐患，P-026）。连接失败由 `load_mcp_tools` 兜底为 `[]`，不阻断装配。
 - `sessions.create(thread_id)` 用 `INSERT OR IGNORE`，重复建同 ID 会话不覆盖旧数据（幂等）。
 - **M3 为什么用 db_path 而非 conn**：knowledge/memory 工具在 LangGraph 后台线程跑 SQL，SQLite 连接不能跨线程共用——repo 按线程建连接（P-018）；所以 `MemoryRepository(db_path=…)`/`KnowledgeRepository(db_path=…)`/`GoalRepository(db_path=…)`/`AutomationRepository(db_path=…)` 都传路径，唯独 `SessionRepository(conn)` 用主线程连接（主线程专用）。
 - 缺 API key 早退：`if cfg.models is None or not cfg.models.chat.api_key: print(...); return`——不建库不建模型，用户能立刻看到缺配置提示。
@@ -219,8 +228,16 @@ uv run agentflow        ← 程序入口（可执行文件 agentflow，pyproject
 ### 块 4-M4：M4 沙箱/审计/派发装配段（main 内部片段，main.py:177-192）
 
 ```python
-    # ⑥ 工具（M2→M4）：工具目录全量工具（9 个，含沙箱终端/文件/子代理派发）
+    # ⑥ 工具（M2→M4）：内置工具目录全量工具（9 个，含沙箱终端/文件/子代理派发）
     tools = get_available_tools()
+
+    # M6→M7 接线：MCP 外部服务器工具（可选，config.yaml mcp_servers 段）。
+    #   _raw_mcp_servers 用相对路径 "config.yaml"，启动目录不同会找不到 →
+    #   先 setdefault AGENTFLOW_CONFIG_PATH 指向项目根（P-014 同款定位）；
+    #   连接失败由 load_mcp_tools 兜底为 []（warning + 跳过，不阻断装配）。
+    os.environ.setdefault("AGENTFLOW_CONFIG_PATH", str(project_root / "config.yaml"))
+    mcp_tools = load_mcp_tools(cfg)
+    tools = tools + mcp_tools
 
     # M4：沙箱装配——本地目录沙箱（子代理/终端操作落在项目 .sandbox 内，
     # **1 进程 = 1 provider = 1 沙箱 = 1 根目录**。多会话多沙箱（按 thread_id 区分目录）是 `acquire(thread_id)` 参数预留的方向，M4 未实现。
@@ -245,9 +262,9 @@ uv run agentflow        ← 程序入口（可执行文件 agentflow，pyproject
     configure_dispatch_service(tools, model)
 ```
 
-**结构简析**（M4 增量）：插在块 4 既有装配链里的三段新逻辑——① **沙箱 provider 注入**：`set_sandbox_provider(LocalSandboxProvider(project_root / ".sandbox"))` 把本地目录沙箱设为全局单例，终端/文件/子代理操作都落在项目 `.sandbox` 内，越界路径被 `LocalSandbox._resolve` 拦；② **审计 repo 注入**：`SandboxAuditRepository(db_path=db_path)` 建好后，分别 `configure_terminal_audit` / `configure_file_audit` 挂到 terminal_run 与 read_file/write_file 工具（模块级句柄），每次沙箱操作写一行 sandbox_audit；③ **派发服务注入**：`configure_dispatch_service(tools, model)` 把全量工具集 + 父模型塞进 dispatch_subagents 工具的模块级句柄，子代理才能复用工具与模型。本段是 main() 内部片段，无独立函数签名，**不另造参数表**。
+**结构简析**（M4 增量）：插在块 4 既有装配链里的三段新逻辑——① **MCP 接线（M6→M7）**：`tools = get_available_tools()` 拿到 9 个内置工具后，`os.environ.setdefault("AGENTFLOW_CONFIG_PATH", ...)` 指向项目根 config.yaml，`mcp_tools = load_mcp_tools(cfg)` 加载外部服务器工具（失败兜底 `[]`），`tools = tools + mcp_tools` 合并成最终挂载列表；② **沙箱 provider 注入**：`set_sandbox_provider(LocalSandboxProvider(project_root / ".sandbox"))` 把本地目录沙箱设为全局单例，终端/文件/子代理操作都落在项目 `.sandbox` 内，越界路径被 `LocalSandbox._resolve` 拦；③ **审计 repo 注入**：`SandboxAuditRepository(db_path=db_path)` 建好后，分别 `configure_terminal_audit` / `configure_file_audit` 挂到 terminal_run 与 read_file/write_file 工具（模块级句柄），每次沙箱操作写一行 sandbox_audit；④ **派发服务注入**：`configure_dispatch_service(tools, model)` 把全量工具集 + 父模型塞进 dispatch_subagents 工具的模块级句柄，子代理才能复用工具与模型。本段是 main() 内部片段，无独立函数签名，**不另造参数表**。
 
-**落库要点/补充**：装配顺序敏感——必须先有 `tools`（⑥）→ 沙箱/审计 → 再建 `model`（⑧）→ 最后用 `(tools, model)` 调 `configure_dispatch_service`；沙箱根固定为 `project_root / ".sandbox"`，改项目根定位会同时影响沙箱隔离边界。1 进程 = 1 provider = 1 沙箱 = 1 根目录；按 thread_id 多会话多沙箱是 `acquire(thread_id)` 参数预留方向，M4 未实现。
+**落库要点/补充**：装配顺序敏感——必须先有 `tools`（⑥，含 MCP 合并）→ 沙箱/审计 → 再建 `model`（⑧）→ 最后用 `(tools, model)` 调 `configure_dispatch_service`；沙箱根固定为 `project_root / ".sandbox"`，改项目根定位会同时影响沙箱隔离边界。1 进程 = 1 provider = 1 沙箱 = 1 根目录；按 thread_id 多会话多沙箱是 `acquire(thread_id)` 参数预留方向，M4 未实现。
 
 启动信息随之新增三行（main.py:226-228）：
 
@@ -306,3 +323,5 @@ _2026-10-07 追加：块 4·分流小节（automation 子命令族逐行拆解 +
 _2026-10-07 追加：块 4·分流 实际用法示例（list/create/pause/resume/delete 命令 + 结构拆解）。_
 
 _2026-10-07 改：块 4 结构简析由长箭头段改为 12 步分条表格（每步一行：步骤/做什么/要点）。_
+
+_2026-10-12 改：⑥ 工具段同步 M6→M7 MCP 接线（AGENTFLOW_CONFIG_PATH setdefault + load_mcp_tools 合并），代码块/步骤表/结构简析/落库要点同步。_

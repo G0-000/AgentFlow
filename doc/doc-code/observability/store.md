@@ -81,7 +81,7 @@ recorder（fire-and-forget 后台线程）
         ▼
 查询侧（webui / 排障）
     get_run(run_id) → SELECT * FROM runs WHERE run_id=? → dict|None
-    query_events(run_id) → SELECT * FROM events WHERE run_id=?
+    query_events(run_id) → SELECT * FROM trace_events WHERE run_id=?
                            ORDER BY started_at ASC → meta_json 解析成 meta
 ```
 
@@ -397,3 +397,4 @@ class ObsTraceStore:
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_
+_2026-10-12 改：流程图查询侧表名修正——query_events 实查 trace_events（agentflow_obs_trace_events），非 events。_

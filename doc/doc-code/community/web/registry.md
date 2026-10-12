@@ -67,6 +67,18 @@
    不碰真实网络。
 3. **加新内置 provider**：在 `ensure_providers_loaded` 的 try 里追加一行
    `register_provider(NewProvider())`，自动发现序 `_AUTO_PREFERENCE` 里加它的 name。
+4. **Agent 会话中的后端解析（每次搜索前都走这里）**：
+   ```
+   你：查一下 xx → Agent 调 search 工具
+     → resolve_search_backend()    ← 每次搜索都先解析"用哪个后端"
+        ① 环境变量 AGENTFLOW_SEARCH_BACKEND 显式指定（如 export ...=tavily）→ 用它
+        ② 未指定 → 按 _AUTO_PREFERENCE 挑第一个 is_available()：ddgs 免费无 key 永远保底
+        ③ 全无可用 → None（工具层此时应回模型"没有可用搜索后端"）
+     → get_provider(name).search(...) → 统一契约回给 Agent
+   ```
+   含义：**后端是"运行时可换"的**——不重启、不改代码，靠环境变量或自动发现就能切引擎；
+   这也正是 registry 把"选后端"从 providers/ 实现里剥出来的原因（实现层只管会不会搜，
+   选谁由这里定）。
 
 ## 📊 顺序执行链流程图
 
@@ -322,3 +334,4 @@ import 本模块不注册任何 provider，第一次 list/get/resolve 时 `ensur
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_
+_2026-10-12 补充：实用场景 #4——Agent 会话中后端解析的完整路径（env 指定 > 自动序 > None）。_

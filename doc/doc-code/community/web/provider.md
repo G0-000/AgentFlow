@@ -70,6 +70,18 @@
    供子类 `is_available()` 判断"有没有真 key"。
 3. **上层工具统一消费**：Agent 的 web 搜索工具只调 `provider.search(query, limit)`，
    按 `success` 字段分流，不关心底层是 ddgs / searxng / tavily。
+4. **Agent 会话端到端（真实对话数据流）**：
+   ```
+   你：杭州亚运会 2026 赛程
+     → Agent 调 search 工具 → resolve_search_backend 选 ddgs → get_provider("ddgs")
+     → provider.search("杭州亚运会 2026 赛程", limit=5)
+     → 成功 {"success": True, "data": {"web": [{title,url,description,position}×5]}}
+        → 工具层把 data.web 列表喂回模型 → 模型整理成带链接的回答
+     → 失败 {"success": False, "error": "ddgs search failed: ..."}
+        → 工具层把 error 文本回给模型 → 模型如实告知"搜索失败"
+   ```
+   上层永远只认 `success` 布尔分流 + `data.web`/`error`——这就是"统一结果契约"存在的意义：
+   **换引擎（ddgs→tavily）只换 provider 实例，工具与模型侧代码零改动。**
 
 ## 📊 顺序执行链流程图
 
@@ -274,3 +286,4 @@ provider）留口子，搜索类 provider 一般不用动。
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_
+_2026-10-12 补充：实用场景 #4——Agent 会话端到端数据流（成功/失败两种契约如何喂给模型）。_

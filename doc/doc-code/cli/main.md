@@ -41,7 +41,8 @@
 │   ├─ load_config()          ← 读 config.yaml → AppConfig    │
 │   ├─ init_db(db_path)       ← 建表（sessions 等）            │
 │   ├─ create_sqlite_checkpointer(db_path) ← 图状态检查点      │
-│   ├─ get_available_tools()  ← 工具目录（M2，5 个）            │
+│   ├─ get_available_tools()  ← 内置工具目录（M2→M4，9 个）    │
+│   ├─ load_mcp_tools()       ← MCP 外部工具（M6→M7 接线）     │
 │   ├─ 中间件 2 个            ← 标题/线程目录（M2）            │
 │   ├─ create_chat_model(cfg) ← 模型工厂 → ChatOpenAI          │
 │   ├─ make_lead_agent(...)   ← 构建主 Agent（带持久化）       │
@@ -99,6 +100,9 @@
 4. 自动标题落库：首轮后 get_state 读 title → sessions.update_title
 5. 启动信息：模型/工具/会话/数据一目了然（用户明确要求）
 6. 调试与演示：无 Web UI 前的最快验证路径
+7. **MCP 外部工具接线（M6→M7）**：⑥ 工具处 `load_mcp_tools(cfg)` 合并进 `tools`，
+   config.yaml 启用 filesystem server 后，CLI 对话里 Agent 可直接调 `mcp_*` 工具
+   （如 `mcp_filesystem_list_directory` 列目录）——外部能力成为 Agent 的手。
 
 ## 📊 流程图
 
@@ -143,7 +147,11 @@ load_config()                 ← config.yaml → AppConfig
 create_sqlite_checkpointer()  ← 图状态检查点（LangGraph 记忆体）
 │
 ▼
-get_available_tools()         ← 收集 5 个内置工具（M2）
+get_available_tools()         ← 收集 9 个内置工具（M2→M4）
+│
+▼
+load_mcp_tools(cfg)           ← M6→M7：MCP 外部工具（失败兜底 []）
+    tools = tools + mcp_tools ← 合并成最终挂载列表
 │
 ▼
 [TitleMiddleware,             ← 中间件：自动标题 + 线程数据目录
@@ -219,7 +227,7 @@ flowchart TD
     H -- "无" --> Z["打印缺配置提示 → 退出"]
     H -- "有" --> I["④ init_db 建表"]
     I --> J["⑤ create_sqlite_checkpointer<br/>图状态检查点"]
-    J --> K["⑥ get_available_tools 收集 5 工具"]
+    J --> K["⑥ get_available_tools 收集 9 内置工具 + load_mcp_tools 合并 MCP（M6→M7）"]
     K --> L["⑦ 中间件：标题 + 线程目录"]
     L --> M["⑧ create_chat_model 建模型"]
     M --> N["⑨ make_lead_agent 编译图"]
@@ -754,3 +762,4 @@ _自动生成于 doc-code 规范落地（2026-09-28）。2026-09-29 更新：目
 _2026-10-01 M4 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
 _2026-10-02 M5 补齐：目录 + 顺序执行链流程图 + 成块代码解析（+Q&A）。_
 _2026-10-03 重构：代码解析段按「结构简析 + 参数逐条表格 + 落库要点」规范化（代码块零改动）。_
+_2026-10-12 改：结构图/流程图/Mermaid 同步 M6→M7 MCP 接线（get_available_tools 9 个内置 + load_mcp_tools 合并）；实用场景 #7。_

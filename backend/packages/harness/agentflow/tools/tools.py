@@ -25,7 +25,7 @@
 # │        workspace → …）                                      │
 # │                                                             │
 # │ get_available_tools() -> list[BaseTool]                     │
-# │   对外入口：输出最终挂载给 Agent 使用的工具列表             │
+# │   对外入口：返回内置工具目录（最终挂载由装配层合并 MCP）     │
 # └────────────────────────────────────────────────────────────┘
 # ----------------------------------------------------------------------------
 # 💡 【三、设计思想】
@@ -104,5 +104,5 @@ def _finalize_tool_catalog(tools: list[BaseTool]) -> list[BaseTool]:
 
 
 def get_available_tools() -> list[BaseTool]:
-    """返回最终给 Agent 挂载的工具列表（M2 = 全部内置工具）。"""
+    """返回内置工具目录（M2 起；最终挂载由装配层合并 MCP 工具）。"""
     return _finalize_tool_catalog(list(get_builtin_tools()))

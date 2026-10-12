@@ -65,6 +65,16 @@
    不抛错，`None` 即匿名。
 3. **测试断言**：单测直接传 dict headers 调函数，断言"无 token 抛 AuthRequiredError /
    有效 token 返回 payload"，不起真实 HTTP server。
+4. **入口挂点视角（"谁是门、谁是锁"）**：authz 是**通用身份门卫，谁进门都过它**——
+   | 入口 | 走不走 authz | 说明 |
+   |---|---|---|
+   | M7 Gateway API（HTTP） | ✅ 主要挂点 | 外部程序调 API 验 Bearer token |
+   | 飞书渠道回调（IM webhook） | 候选 | 事件订阅回调同样验来源身份（防伪造请求） |
+   | CLI | 一般不 | 本地调试入口，本机信任，不鉴权 |
+   | 未来 web UI / 任何入口 | 都能用 | 同一把锁，谁用谁调 |
+   
+   职责边界一句话：**入口负责"接"（路由/解析/响应），authz 负责"验"（你是谁、能不能进），
+   业务负责"干"**——authz 不处理 API 本身，只做身份判定这一件事。
 
 ## 📊 顺序执行链流程图
 
@@ -272,6 +282,19 @@ def require_api_auth(headers: dict[str, str] | None, secret: str) -> dict[str, A
 | 私有 API / 写操作 | `require_api_auth` | 抛 AuthRequiredError → 401 |
 | 公开页但登录态个性化 | `resolve_auth_from_headers` | 返回 None，业务按匿名处理 |
 
+### 6. authz 是"通用一把锁"还是"各平台各写一套鉴权"？
+
+**一句话**：**通用一把锁，不是各平台各写一套**——全项目就这一条鉴权链
+（`webui/auth.py` 签发 + `authz/http_guard.py` 守卫），任何入口（Gateway API / 飞书回调 /
+未来 web）共用，不挑 HTTP 框架（纯函数收 `headers` dict + `secret`，FastAPI/Starlette 皆可适配）。
+
+容易混淆的两件事，分清楚：
+- **鉴权（authz 管）**：验"你是谁、能不能进"——Bearer JWT 校验，与具体入口无关；
+- **第三方平台适配（community/ 管）**：slack/github 这类**服务接入**——那是"Agent 调第三方 API"
+  的扩展域，与"验身份"是两回事，别把平台适配塞进 authz。
+
+所以 authz 目录只放**通用鉴权原语**（身份验证 + 401 语义），不做任何平台/框架定制。
+
 ## ⚠️ 风险点
 
 1. **JWT 密钥管理**：`secret` 由调用方传入——密钥泄漏 = 任何人可伪造 token；
@@ -285,3 +308,4 @@ def require_api_auth(headers: dict[str, str] | None, secret: str) -> dict[str, A
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_
+_2026-10-12 补充：实用场景 #4（入口挂点：API 主挂点/飞书候选/CLI 不鉴权 + 三层职责）+ Q&A #6（通用一把锁 vs 各平台各写一套）。_

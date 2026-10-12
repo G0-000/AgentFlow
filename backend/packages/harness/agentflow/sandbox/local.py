@@ -61,10 +61,10 @@ from agentflow.sandbox.sandbox_provider import SandboxProvider
 
 
 class LocalSandbox(Sandbox):
-    """本地目录沙箱：root 目录内可读写/执行，root 外一律拒绝。
+    """本地文件 API 以 root 为边界；命令执行并不受该路径边界限制。
 
-    M4 定位：文件路径级隔离（验收点 4）。命令执行 cwd 限制 + 超时，
-    但不做 OS 级进程 jail（`cd /etc && …` 可逃逸 cwd，见风险点 2）。
+    M4 定位：read/write/list 等文件 API 做路径校验（验收点 4）。
+    execute_command 使用宿主机 shell，cwd 只是初始目录；没有 OS 级进程隔离。
     """
 
     def __init__(self, root: str | Path):

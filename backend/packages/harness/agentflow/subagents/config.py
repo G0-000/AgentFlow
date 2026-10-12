@@ -17,7 +17,8 @@
 # │   tools: 工具白名单（None = 继承父级全部）           │
 # │   disallowed_tools: 黑名单（默认排除递归派发）        │
 # │   model: "inherit" = 用父模型（M4 只支持 inherit）    │
-# │   max_turns / timeout_seconds: 执行上限              │
+# │   max_turns: 预留字段（executor 未消费）              │
+# │   timeout_seconds: 执行上限                          │
 # └──────────────────────────────────────────────────────┘
 # ----------------------------------------------------------------------------
 # 💡 【三、设计思想】
@@ -54,7 +55,7 @@ class SubagentConfig:
         tools: 工具白名单；None = 继承父级全部工具
         disallowed_tools: 工具黑名单（始终排除）
         model: "inherit" = 用父模型（M4 仅支持此值）
-        max_turns: 模型最大轮数（防失控）
+        max_turns: 预留字段；当前执行器未消费
         timeout_seconds: 单任务最长执行秒数
     """
 

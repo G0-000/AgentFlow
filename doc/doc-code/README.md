@@ -8,9 +8,9 @@
 # doc-code —— 代码结构文档（与 agentflow/ 目录一一对应）
 
 > 先用本页找到模块，再点进文件说明。历史记录可能沿用当时的阶段称呼；当前行为以源码为准。
-> 当前核心包有 **104 个 Python 文件**。测试文档只覆盖明确列出的测试文件，不等同于全量测试清单。
+> 当前核心包有 **115 个 Python 文件**（104 + M7 新增 gateway 8 / channels 3）。测试文档只覆盖明确列出的测试文件，不等同于全量测试清单。
 
-## 1. 当前代码全景（agentflow/ 104 个 Python 文件）
+## 1. 当前代码全景（agentflow/ 115 个 Python 文件）
 
 ```
 backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflow）
@@ -30,11 +30,15 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 ├── authz/        2 文件  鉴权守卫（M6：JWT 401 语义）
 ├── observability 4 文件  可观测（M6：独立 obs.db 的 tables/store/recorder）
 ├── webui/        3 文件  WebUI 鉴权（M6：auth/middleware）
+├── gateway/      8 文件  网关域（M7：FastAPI 装配/模型 SQLite 存储/SSE + models·runs·threads 三 router）
+├── channels/     3 文件  IM 渠道域（M7：飞书 WebSocket 长连接 → 去重 → Agent → 回复）
 ├── plans/         4 文件  计划与 Goal 服务
 ├── scheduler/     3 文件  Cron 解析与定时循环
 ├── collab/        2 文件  M5 执行生命周期
 └── cli/           2 文件  命令行入口（另有 4 篇功能说明文档）
 ```
+
+> M7 新增两域详见文件级说明：`doc-code/gateway/`（app / model_store / sse / routers·models·runs·threads）与 `doc-code/channels/`（base / feishu）。
 
 ## 2. 历史文件设计索引（M1 起逐步追加，非当前源码清单）
 

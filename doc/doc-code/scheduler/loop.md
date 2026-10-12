@@ -113,7 +113,7 @@
                         │
                         ▼
                     _tick(now=None)
-                        now = now or datetime.now(UTC)
+                        now = now or datetime.now()（本地 naive）
                         minute_key = now.strftime("%Y%m%d%H%M")
                         tasks = repo.list_active()   （失败静默 return）
                         │
@@ -169,7 +169,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import datetime
 
 from agentflow.scheduler.cron import cron_matches_at
 
@@ -189,7 +189,7 @@ def _parse_iso(value: object) -> datetime | None:
     return dt
 ```
 
-**结构简析**：标准库导入（logging/threading/time/datetime）+ `cron_matches_at`；`_parse_iso` 容错解析 ISO 串，关键一步是**带时区则去时区**，因为 `now = datetime.now(UTC)` 比较时需统一基准。
+**结构简析**：标准库导入（logging/threading/time/datetime）+ `cron_matches_at`；`_parse_iso` 容错解析 ISO 串，关键一步是**带时区则去时区**，因为缺省 tick 时钟是本地 naive（P-023 修复后），scheduled_at 也按本地墙钟解释，两者必须统一基准。
 
 `_parse_iso()`**&#x20;参数逐条解释**：
 
@@ -199,7 +199,7 @@ def _parse_iso(value: object) -> datetime | None:
 | ------- | -------- | --- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `value` | `object` | 必填  | ISO 时间串（实际是 once 任务的 `scheduled_at`）；空值返回 None；`fromisoformat` 抛 ValueError 也返回 None；`dt.tzinfo is not None` 则 `replace(tzinfo=None)` 去时区 |
 
-**落库要点**：统一成 naive 后才能 `abs((now - sat).total_seconds())` 比 ±120s 时间窗；带时区的 `scheduled_at` 直接相减会 TypeError。
+**落库要点**：统一成 naive 后才能 `abs((now - sat).total_seconds())` 比 ±120s 时间窗；P-023 修复前缺省 `now=datetime.now(UTC)`（aware）与剥 tz 的 naive scheduled_at 直接相减必抛 TypeError，被单任务 except 吞掉记 warning，once 型任务生产路径永远被跳过。
 
 ### 块 2：`AutomationScheduler.__init__` + `start` + `stop`
 
@@ -266,9 +266,16 @@ class AutomationScheduler:
     def _tick(self, now: datetime | None = None) -> None:
         """扫一遍 active 任务，命中者投队列。
 
-        now 可注入（测试用固定时刻）；缺省取本地当前时间。
+        now 可注入（测试用固定时刻，naive 本地墙钟）；缺省取本地当前时间。
+
+        时间语义（P-023）：cron 串与 --at 都是用户本地墙钟，故缺省时钟统一为
+        本地 naive；注入 aware 时钟时先转本地 naive，与 _parse_iso 剥 tz 后的
+        scheduled_at 同域比较，杜绝 aware-naive 直接相减的 TypeError。
         """
-        now = now or datetime.now(UTC)
+        now = now or datetime.now()  # noqa: DTZ005 —— 刻意本地 naive 墙钟（P-023 语义）
+        if now.tzinfo is not None:
+            # 容错：注入 aware 时钟（如旧 datetime.now(UTC)）先转本地 naive
+            now = now.astimezone().replace(tzinfo=None)
         minute_key = now.strftime("%Y%m%d%H%M")
 
         try:
@@ -310,7 +317,7 @@ class AutomationScheduler:
 
 | 参数    | 类型                 | 默认值    | 含义                                                                                         |
 | ----- | ------------------ | ------ | ------------------------------------------------------------------------------------------ |
-| `now` | `datetime \| None` | `None` | 注入时刻（测试用固定时刻）；缺省 `datetime.now(UTC)`；据此算 `minute_key = now.strftime("%Y%m%d%H%M")` 做分钟级去重键 |
+| `now` | `datetime \| None` | `None` | 注入时刻（测试用固定时刻）；缺省 `datetime.now()`（本地 naive 墙钟）；注入 aware 时先 astimezone 转本地 naive；据此算 `minute_key = now.strftime("%Y%m%d%H%M")` 做分钟级去重键 |
 
 **落库要点**：读库 `list_active()` 整个 try 包住，失败本轮静默 return（下轮重试，daemon 不因一次读库崩停摆）；for 循环里每个任务单独 try，单任务异常 `logger.warning` 后 continue（不影响其它任务）。四步：①`cron_matches_at` 不命中 continue；②`_fired_minute[task_id]` 已是当前 minute\_key 则 continue（R2 去重）；③once 型 ——`once_fired` 落库为真 continue，否则解析 `scheduled_at`，偏离 >120s 则 continue（错过窗不补跑）；④写 `_fired_minute[task_id]=minute_key` + `queue.put((task_id, prompt))`。
 
@@ -535,3 +542,4 @@ start() → daemon 线程
 *2026-10-10 追加：Q\&A 5（cron 是什么：5 字段格式 + 例子 + AgentFlow 匹配链路 + 与自然语言归一化的关系）。*
 
 *2026-10-11 追加：Q\&A 6（scheduler.start () 机制一句话 + 三关键点：轮询型 ±60s 非精确闹钟 /daemon 线程 / 只入队不执行，主线程 drain 才跑模型）。*
+*2026-10-12 修复：P-023 时区语义——缺省时钟由 `datetime.now(UTC)`（aware）改为本地 naive `datetime.now()`，注入 aware 时钟先 astimezone 归一；代码块 1/3 与参数表同步源码（once 任务生产默认路径此前因 TypeError 被吞而永不触发）。*

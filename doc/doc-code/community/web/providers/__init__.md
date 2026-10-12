@@ -35,6 +35,10 @@ community/web/providers/                 ← 具体搜索后端实现目录
    在 `registry.ensure_providers_loaded` 注册即可——上层 resolve/get 逻辑零改动。
 2. **上层取搜索能力**：走 `registry`（`resolve_search_backend` → `get_provider`）拿实例，
    不直接 import `providers/` 下的具体类——便于测试注入与后端切换。
+3. **Agent 会话视角**：用户问问题 → Agent 调搜索工具 → registry 选后端 →
+   `providers/` 里对应实现跑真实搜索 → 结构化结果喂回 Agent。本目录只负责
+   **"契约的实现"**（会不会搜），"选谁、何时加载"全在 registry——换/加引擎就是
+   本目录加文件 + 注册一行。
 
 ## ⚠️ 风险点
 
@@ -45,3 +49,4 @@ community/web/providers/                 ← 具体搜索后端实现目录
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_
+_2026-10-12 补充：实用场景 #3——Agent 会话视角（本目录=契约实现层，选谁由 registry 定）。_

@@ -60,7 +60,10 @@
 
 ## 📊 顺序执行链流程图
 
-**调用方**：`ObservabilityRecorder` ← agent/webui 埋点；`store` ← `observability/store.py`。
+**调用方**：`ObservabilityRecorder` ← **设计上** agent/webui 埋点处调用；`store` ← `observability/store.py`。
+> ⚠️ M6 现状：**尚未自动接入 Agent 对话循环**——目前没有生产代码调用 `record_run`/
+> `record_trace_event`（能力层就绪 + 单测验证）；显式埋点模型下，**不主动调就监督不到**，
+> 自动埋点（中间件挂图）是 M7+ 方向。
 
 ```text
 主流程（调用线程，不阻塞）
@@ -277,3 +280,4 @@ store 的 `insert_run`/`insert_event` **逐参数对齐**（全关键字），�
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_
+_2026-10-12 改：调用方说明补 M6 现状——尚未自动接入 Agent 对话循环，显式埋点模型下不主动调就监督不到（自动埋点是 M7+ 方向）。_

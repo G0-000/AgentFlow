@@ -304,6 +304,35 @@ langchain-mcp-adapters 在把 MCP 工具转成 BaseTool 时，会按服务器名
 这是 dataclass 的硬规则：直接写 `args: list[str] = []` 会在类定义期报 ValueError，
 且语义上所有实例共享同一个 list 会串数据。源码三行 `field(default_factory=...)` 正是避这个坑。
 
+### 5. transport 是什么？stdio / sse / http 各自啥意思？为什么缺省 stdio？
+
+**一句话**：`transport` = **MCP 客户端与 MCP 服务器之间的通信通道**（怎么连、怎么传消息）；
+`stdio` 走本地子进程管道，`sse`/`http` 走远程 HTTP；不写这个字段就默认本地 `stdio`。
+
+| 值 | 含义 | 适用场景 |
+|---|---|---|
+| `stdio`（缺省） | **本地子进程**：客户端启动一个子进程（如 `npx` / `uvx`），通过它的**标准输入/输出**管道传 JSON-RPC 消息 | 本地 MCP 服务器（filesystem、git 这类命令行工具），最常见 |
+| `sse` | 远程 HTTP + **Server-Sent Events**：客户端发请求，服务器单向推流 | 远程 MCP 服务器（旧式远程方式） |
+| `http` | 远程**标准 HTTP** 请求-响应（streamable HTTP） | 远程 MCP 服务器（较新方式） |
+
+**为什么缺省 stdio**：
+1. **最常见场景是本地**——M6 验收点 1 就是本地 stdio（npx 起子进程）；远程接入是少数，
+   显式写 `sse`/`http` 才需要；
+2. 解析逻辑兜底：`transport = str(item.get("transport") or "stdio")`——没写就取 `"stdio"`，
+   非法值也归一回 `stdio`。
+
+**实用写法**：本地服务器可以完全不写 transport，只给 `command` + `args`：
+
+```yaml
+mcp_servers:
+  - name: filesystem
+    command: npx   # 不写 transport → 默认 stdio
+    args: ["-y", "@modelcontextprotocol/server-filesystem", "/path"]
+```
+
+**易混点**：`transport` 决定"怎么连"，跟"服务器是本地还是远程"是两件事——本地用 stdio，
+远程用 sse/http，别混配（远程配成 stdio 会被当成"起本地子进程"而失败）。
+
 ## ⚠️ 风险点
 
 1. **配置错误静默丢弃**：缺 name / 缺 command(stdio) / 缺 url(sse|http) 都 `continue`，
@@ -317,3 +346,4 @@ langchain-mcp-adapters 在把 MCP 工具转成 BaseTool 时，会按服务器名
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_
+_2026-10-12 追加：Q&A 5（transport 概念：stdio 本地子进程管道 / sse、http 远程；缺省 stdio 的原因与实用写法）。_

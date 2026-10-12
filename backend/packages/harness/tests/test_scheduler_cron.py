@@ -4,8 +4,8 @@
 # 用 cron_matches_at / normalize_schedule 纯函数 + AutomationScheduler._tick
 # 注入固定 now + FakeRepo/FakeQueue，不起 daemon 线程、不碰模型。
 # ============================================================================
-# ruff: noqa: DTZ001 —— 测试构造固定时间点（cron 匹配用字段比较），naive datetime 是测试语义
-from datetime import datetime
+# ruff: noqa: DTZ001, DTZ005 —— 测试构造固定时间点/本地墙钟（naive datetime 是测试语义）
+from datetime import UTC, datetime
 
 from agentflow.scheduler.cron import cron_matches_at, normalize_schedule
 from agentflow.scheduler.loop import AutomationScheduler
@@ -118,3 +118,68 @@ def test_once_task_skipped_outside_window():
     sched = AutomationScheduler(repo, q)
     sched._tick(now=datetime(2026, 10, 2, 9, 5, 0))  # 偏离 300s > 120s → 跳过
     assert q.items == []
+
+
+# ---------- P-023 回归：生产默认时钟路径（不传 now） ----------
+
+def test_tick_default_now_fires_once_task(caplog):
+    """P-023 回归①：不传 now = 生产默认路径，once 任务必须真入队。
+
+    旧代码 now=datetime.now(UTC)（aware）与 _parse_iso 剥 tz 的 naive
+    scheduled_at 直接相减 → TypeError 被单任务 except 吞掉记 warning，
+    once 型任务在生产默认路径永远被跳过。
+    """
+    now_local = datetime.now()
+    repo = FakeRepo(
+        [_task("t_once_prod", schedule="*/1 * * * *",
+               schedule_type="once", scheduled_at=now_local.isoformat())]
+    )
+    q = FakeQueue()
+    sched = AutomationScheduler(repo, q)
+    with caplog.at_level("WARNING", logger="agentflow.scheduler.loop"):
+        sched._tick()  # 不传 now —— 生产默认时钟，必须走通 once 窗口判定
+    assert q.items == [("t_once_prod", "echo hi")]
+    assert "自动化单任务处理失败" not in caplog.text
+
+
+def test_tick_aware_now_does_not_raise(caplog):
+    """P-023 回归②：注入 aware UTC now（旧生产 bug 现场）不再 TypeError 吞掉。
+
+    修复后 aware 时钟先 astimezone 转本地 naive 再与 naive scheduled_at 比较；
+    两值同一时刻，±120s 窗口内必入队。
+    """
+    now_local = datetime.now()
+    repo = FakeRepo(
+        [_task("t_once_aware", schedule="*/1 * * * *",
+               schedule_type="once", scheduled_at=now_local.isoformat())]
+    )
+    q = FakeQueue()
+    sched = AutomationScheduler(repo, q)
+    with caplog.at_level("WARNING", logger="agentflow.scheduler.loop"):
+        sched._tick(now=datetime.now(UTC))  # aware —— 旧代码此处必 TypeError
+    assert q.items == [("t_once_aware", "echo hi")]
+    assert "自动化单任务处理失败" not in caplog.text
+
+
+def test_tick_default_clock_called_without_tz(monkeypatch):
+    """P-023 回归③（时区语义）：缺省时钟必须本地 naive（datetime.now()）。
+
+    旧代码 datetime.now(UTC) 使 cron 串按 UTC 墙钟匹配——用户在 UTC+8 配
+    "0 9 * * *"（意为本地早 9 点）实际在 UTC 09:00 = 本地 17:00 才触发。
+    用间谍断言缺省时钟调用时 tz 参数为 None（本地墙钟）。
+    """
+    from agentflow.scheduler import loop as loop_mod
+
+    calls = []
+    real_datetime = loop_mod.datetime
+
+    class _SpiedDateTime(real_datetime):
+        @classmethod
+        def now(cls, tz=None):
+            calls.append(tz)
+            return real_datetime.now()
+
+    monkeypatch.setattr(loop_mod, "datetime", _SpiedDateTime)
+    q = FakeQueue()
+    AutomationScheduler(FakeRepo([_task()]), q)._tick()  # 不传 now
+    assert calls == [None]

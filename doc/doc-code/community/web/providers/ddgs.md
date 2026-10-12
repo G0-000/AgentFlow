@@ -66,6 +66,20 @@
 1. **默认搜索后端**：`resolve_search_backend()` 在无 key 环境下默认选中 ddgs（自动序第一）。
 2. **国内网络兜底**：auto 被拦时自动切 bing，不用人工配置就能出结果。
 3. **测试/离线环境**：无 API key 也能跑通搜索链路（只要能 import ddgs + 有网）。
+4. **Agent 会话里真搜一次（返回形状与降级）**：
+   ```
+   你：杭州亚运会 2026 赛程
+     → search("杭州亚运会 2026 赛程", 5) → 内部 auto 后端命中 →
+       {"success": True, "data": {"web": [
+         {"title": "杭州亚运会2026赛程", "url": "https://...", "description": "……", "position": 1},
+         ...
+       ]}}
+       → 模型把 title/url 整理成带链接的回答给用户
+   降级链：auto 被墙 → 自动切 bing → bing 也失败 → error 契约回模型
+           ；45s 内不返回 → "ddgs search timed out after 45s"（不无限挂起）
+   ```
+   一句话：**用户问 → Agent 调 ddgs → 拿回结构化 {title,url,description} 列表 → 组织回答**；
+   全程是文本数据流，没有打开任何网页。
 
 ## 📊 顺序执行链流程图
 
@@ -324,3 +338,4 @@ class DDGSWebSearchProvider(WebSearchProvider):
 
 ---
 _2026-10-05 M6 新增：目录 + 结构图 + 流程图 + 成块代码解析（参数逐条表）+ Q&A。_
+_2026-10-12 补充：实用场景 #4——Agent 会话真实返回形状 + auto→bing→超时降级链。_
