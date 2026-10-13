@@ -4,7 +4,6 @@
 # 纯函数测试（topo_sort / next_ready_step），无 mock、无 DB。
 # ============================================================================
 import pytest
-
 from agentflow.plans.resolver import PlanCycleError, next_ready_step, topo_sort
 from agentflow.plans.types import PlanStep
 

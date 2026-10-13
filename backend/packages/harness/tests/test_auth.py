@@ -4,7 +4,6 @@
 # 纯函数直测，不依赖任何 HTTP 框架与网络。
 # ============================================================================
 import pytest
-
 from agentflow.authz.http_guard import (
     AuthRequiredError,
     require_api_auth,

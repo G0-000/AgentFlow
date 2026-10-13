@@ -36,10 +36,16 @@
 
 from __future__ import annotations
 
+import contextlib
+from collections.abc import AsyncIterator
+
 import aiosqlite
 
 # AsyncSqliteSaver: langgraph 官方异步检查点（基于 aiosqlite）
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
+
+# 追加（对齐审计 #4）：make_checkpointer 落库位置取默认数据路径
+from agentflow.config.paths import default_db_path
 
 
 async def create_async_sqlite_checkpointer(db_path: str) -> AsyncSqliteSaver:
@@ -53,3 +59,42 @@ async def create_async_sqlite_checkpointer(db_path: str) -> AsyncSqliteSaver:
     """
     conn = await aiosqlite.connect(db_path)
     return AsyncSqliteSaver(conn)
+
+
+# ----------------------------------------------------------------------------
+# 追加（对齐审计 #4）：LangGraph Server checkpointer 工厂入口
+# ----------------------------------------------------------------------------
+# 对标 evoflow/agents/checkpointer/async_provider.py:make_checkpointer。
+# LangGraph CLI 通过 langgraph.json 的 checkpointer.path 定位本工厂。
+# 偏差: AgentFlow 无 config.yaml checkpointer 多后端（memory/sqlite/postgres）
+#       开关，本工厂固定落默认 SQLite（default_db_path()）；签名仍为无参
+#       async context manager（与原版一致），差异仅在不读 app_config。
+
+
+@contextlib.asynccontextmanager
+async def make_checkpointer() -> AsyncIterator[AsyncSqliteSaver]:
+    """异步 checkpointer 工厂（LangGraph Server 入口，无参 async context manager）。
+
+    用法（FastAPI lifespan / langgraph dev）::
+
+        async with make_checkpointer() as checkpointer:
+            ...  # 图运行期持有 checkpointer
+
+    - 连接进入时打开、退出时关闭（无全局状态，对齐原版生命周期）。
+    - 落库路径取 config.paths.default_db_path()（项目根/data/agentflow.db），
+      父目录缺失自动创建。
+    - 与 create_async_sqlite_checkpointer(db_path) 并存：后者是 M7 gateway
+      显式传路径的底层原语；本工厂是对齐原版"无参入口"的声明包装。
+    """
+    import pathlib
+
+    db_path = default_db_path()
+    parent = pathlib.Path(db_path).parent
+    parent.mkdir(parents=True, exist_ok=True)
+    conn = await aiosqlite.connect(db_path)
+    try:
+        saver = AsyncSqliteSaver(conn)
+        await saver.setup()  # 建表（异步 saver 必须显式 setup）
+        yield saver
+    finally:
+        await conn.close()

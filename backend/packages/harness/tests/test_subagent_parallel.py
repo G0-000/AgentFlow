@@ -6,9 +6,8 @@
 import threading
 import time
 
-from langchain_core.messages import AIMessage
-
 from agentflow.subagents import SubagentExecutor, get_subagent_config
+from langchain_core.messages import AIMessage
 
 # ---- 并发跟踪（跨线程共享） ----
 _lock = threading.Lock()

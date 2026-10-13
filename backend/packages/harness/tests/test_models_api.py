@@ -7,7 +7,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from agentflow.gateway.app import create_app
+from app.gateway.app import create_app
 
 
 @pytest.fixture
@@ -30,10 +30,16 @@ def client(tmp_path):
 
 def test_create_and_list_model(client):
     """新增模型 → 列表可见；首个模型自动为主模型。"""
-    resp = client.post("/api/models", json={
-        "name": "deepseek", "model": "deepseek-chat",
-        "base_url": "http://x", "api_key": "sk-aaa", "temperature": 0.2,
-    })
+    resp = client.post(
+        "/api/models",
+        json={
+            "name": "deepseek",
+            "model": "deepseek-chat",
+            "base_url": "http://x",
+            "api_key": "sk-aaa",
+            "temperature": 0.2,
+        },
+    )
     assert resp.status_code == 201
     body = resp.json()
     assert body["name"] == "deepseek"
@@ -63,7 +69,9 @@ def test_create_duplicate_conflict(client):
 def test_patch_model_fields(client):
     """PATCH 局部更新字段（温度/base_url）。"""
     client.post("/api/models", json={"name": "m1", "model": "old"})
-    resp = client.patch("/api/models/m1", json={"temperature": 0.9, "base_url": "http://new"})
+    resp = client.patch(
+        "/api/models/m1", json={"temperature": 0.9, "base_url": "http://new"}
+    )
     body = resp.json()
     assert body["temperature"] == 0.9
     assert body["base_url"] == "http://new"
@@ -91,7 +99,10 @@ def test_switch_primary_without_restart(client):
     assert client.recording.primary == "deepseek"
 
     # 不重启进程：PATCH 把 glm 设为主模型（写 SQLite）
-    assert client.patch("/api/models/glm", json={"is_primary": True}).json()["is_primary"] is True
+    assert (
+        client.patch("/api/models/glm", json={"is_primary": True}).json()["is_primary"]
+        is True
+    )
     primary_now = client.get("/api/models").json()["models"]
     assert [m["name"] for m in primary_now if m["is_primary"]] == ["glm"]
 

@@ -7,11 +7,10 @@
 import json
 import re
 
-from langchain_core.messages import AIMessage
-
 from agentflow.agents.goal.goal_loop import GoalEngine
 from agentflow.persistence.bootstrap import init_db
 from agentflow.persistence.goal_repositories import GoalRepository
+from langchain_core.messages import AIMessage
 
 THREAD = "th-goal-resume"
 

@@ -9,15 +9,16 @@ import json
 import time
 from types import SimpleNamespace as NS
 
-from agentflow.channels.feishu import (
+from agentflow.persistence.bootstrap import init_db
+from agentflow.persistence.session_repositories import SessionRepository
+
+from app.channels.feishu import (
     FeishuChannel,
     _FeishuInboundDeduper,
     feishu_outbound_text,
     handle_challenge,
     parse_inbound,
 )
-from agentflow.persistence.bootstrap import init_db
-from agentflow.persistence.session_repositories import SessionRepository
 
 
 # ----------------------------------------------------------------------------
@@ -126,7 +127,9 @@ def test_parse_inbound_ignores_bot_sender():
 
 def test_parse_inbound_thread_reply_uses_root_id():
     """楼中楼消息：root_id≠msg_id → reply_to 必须用 root_id（飞书 230002 教训）。"""
-    p = parse_inbound(make_event(msg_id="om_leaf", root_id="om_root", text="楼中楼回复"))
+    p = parse_inbound(
+        make_event(msg_id="om_leaf", root_id="om_root", text="楼中楼回复")
+    )
     assert p is not None
     assert p.reply_to == "om_root"
 

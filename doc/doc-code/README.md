@@ -8,7 +8,7 @@
 # doc-code —— 代码结构文档（与 agentflow/ 目录一一对应）
 
 > 先用本页找到模块，再点进文件说明。历史记录可能沿用当时的阶段称呼；当前行为以源码为准。
-> 当前核心包有 **115 个 Python 文件**（104 + M7 新增 gateway 8 / channels 3）。测试文档只覆盖明确列出的测试文件，不等同于全量测试清单。
+> 当前核心包有 **116 个 Python 文件**（104 + M7 新增 app/ 应用层 12 个：gateway 8 + channels 3 + app 包入口 1）。测试文档只覆盖明确列出的测试文件，不等同于全量测试清单。
 
 ## 1. 当前代码全景（agentflow/ 115 个 Python 文件）
 
@@ -30,15 +30,16 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 ├── authz/        2 文件  鉴权守卫（M6：JWT 401 语义）
 ├── observability 4 文件  可观测（M6：独立 obs.db 的 tables/store/recorder）
 ├── webui/        3 文件  WebUI 鉴权（M6：auth/middleware）
-├── gateway/      8 文件  网关域（M7：FastAPI 装配/模型 SQLite 存储/SSE + models·runs·threads 三 router）
-├── channels/     3 文件  IM 渠道域（M7：飞书 WebSocket 长连接 → 去重 → Agent → 回复）
+├── app/           3 文件  应用层（M7：gateway 网关 + channels 渠道，对齐原版 backend/app）
+│   ├── gateway/   8 文件  网关域（FastAPI 装配/模型 SQLite 存储/SSE + models·runs·threads 三 router）
+│   └── channels/  3 文件  IM 渠道域（飞书 WebSocket 长连接 → 去重 → Agent → 回复）
 ├── plans/         4 文件  计划与 Goal 服务
 ├── scheduler/     3 文件  Cron 解析与定时循环
 ├── collab/        2 文件  M5 执行生命周期
 └── cli/           2 文件  命令行入口（另有 4 篇功能说明文档）
 ```
 
-> M7 新增两域详见文件级说明：`doc-code/gateway/`（app / model_store / sse / routers·models·runs·threads）与 `doc-code/channels/`（base / feishu）。
+> M7 新增两域详见文件级说明：`doc-code/app/gateway/`（app / model_store / sse / routers·models·runs·threads）与 `doc-code/app/channels/`（base / feishu）。
 
 ## 2. 历史文件设计索引（M1 起逐步追加，非当前源码清单）
 
@@ -171,6 +172,11 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 
 ### scheduler/（3）
 - [cron.py](scheduler/cron.md) · [loop.py](scheduler/loop.md) · [__init__.py](scheduler/__init__.md)
+- 语义对齐：[scheduler/语义对齐说明.md](scheduler/语义对齐说明.md)（原版「工具执行引擎」 vs AgentFlow「定时触发器」，差异 #3）
+
+### automation/（文档目录 · M8+ 对齐用）
+- 语义对齐：[automation/语义对齐说明.md](automation/语义对齐说明.md)（原版「无人值守自动化流程」 vs AgentFlow M5「定时任务」，差异 #2/#3）
+- 注：当前 `agentflow/` 下尚无 `automation/` 包，本目录为对齐审计结论性文档，后续 M8+ 移植 `output_paths.py` / `automation_runtime.py` 时在此补文件级说明
 
 ### collab/（2）
 - [execution_lifecycle.py](collab/execution_lifecycle.md) · [__init__.py](collab/__init__.md)
@@ -212,7 +218,7 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 ## 5. 当前边界（读源码时牢记）
 
 ```
-① 核心层不反向 import 应用层（当前还没有 app/）
+① 核心层不反向 import 应用层（应用层 = app/，M7 起存在：gateway + channels）
 ② 业务数据通过 persistence/ repo；LangGraph checkpoint 与 observability 独立库是专用边界
 ③ M6 MCP/search/auth/trace 模块目前是组件能力，尚未全部接进主 Agent 对话链路
 ```

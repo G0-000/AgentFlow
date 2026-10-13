@@ -7,7 +7,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from agentflow.gateway.app import create_app
+from app.gateway.app import create_app
 
 
 @pytest.fixture
@@ -25,7 +25,10 @@ def client(tmp_path):
 
 def _ensure_model(client):
     """runs 需要一个主模型（验收点 4 配套）；测试里先建一个。"""
-    client.post("/api/models", json={"name": "m1", "model": "deepseek-chat", "api_key": "sk-test-123"})
+    client.post(
+        "/api/models",
+        json={"name": "m1", "model": "deepseek-chat", "api_key": "sk-test-123"},
+    )
 
 
 def test_create_run_returns_run_id(client):
@@ -65,9 +68,9 @@ def test_run_stream_sse_chunks(client):
     body = resp.text
     # 逐块：三块 delta
     assert body.count("event: delta") == 3
-    assert "data: {\"delta\": \"你好\"}" in body
-    assert "data: {\"delta\": \"，世界\"}" in body
-    assert "data: {\"delta\": \"！\"}" in body
+    assert 'data: {"delta": "你好"}' in body
+    assert 'data: {"delta": "，世界"}' in body
+    assert 'data: {"delta": "！"}' in body
     # 结束帧：done 带完整回复
     assert "event: done" in body
     assert '"response": "你好，世界！"' in body

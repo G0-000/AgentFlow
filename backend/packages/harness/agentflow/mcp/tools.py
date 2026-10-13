@@ -72,8 +72,8 @@ def _make_sync_tool_wrapper(coro: Any, tool_name: str) -> Any:
         finally:
             try:
                 loop.run_until_complete(loop.shutdown_asyncgens())
-            except Exception:  # noqa: BLE001 —— 关 loop 的清理失败可忽略
-                pass
+            except Exception as exc:  # noqa: BLE001 —— 关 loop 的清理失败可忽略
+                logger.debug("asyncgen shutdown failed: %s", exc)
             loop.close()
 
     def sync_wrapper(*args: Any, **kwargs: Any) -> Any:
@@ -89,7 +89,7 @@ def _make_sync_tool_wrapper(coro: Any, tool_name: str) -> Any:
                 )
                 return future.result()
             return _run_coro_on_fresh_loop(coro(*args, **kwargs))
-        except Exception as exc:  # noqa: BLE001 —— 桥接失败向上抛，由工具调用层容错
+        except Exception as exc:  # 桥接失败向上抛，由工具调用层容错
             logger.error("Error invoking MCP tool '%s' via sync wrapper: %s", tool_name, exc)
             raise
 

@@ -1,0 +1,15 @@
+{
+  "$schema": "https://langgra.ph/schema.json",
+  "python_version": "3.12",
+  "dependencies": [
+    "."
+  ],
+  "env": ".env",
+  "graphs": {
+    "lead_agent": "agentflow.agents.lead_agent.agent:make_lead_agent",
+    "goal_agent": "agentflow.agents.goal.goal_graph:make_goal_graph"
+  },
+  "checkpointer": {
+    "path": "./packages/harness/agentflow/agents/checkpointer/async_provider.py:make_checkpointer"
+  }
+}

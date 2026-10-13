@@ -2,9 +2,8 @@
 # AgentFlow · tests/test_stream_chunks.py —— 流式 chunk 提取测试（M2）
 # 验收点 3：流式输出 + P-016 回归（langgraph stream chunk 嵌套结构）。
 # ============================================================================
-from langchain_core.messages import AIMessage
-
 from agentflow.cli.main import _iter_chunk_messages
+from langchain_core.messages import AIMessage
 
 
 def _nested_chunk(text):

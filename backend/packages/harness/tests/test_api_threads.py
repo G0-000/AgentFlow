@@ -6,7 +6,7 @@
 import pytest
 from fastapi.testclient import TestClient
 
-from agentflow.gateway.app import create_app
+from app.gateway.app import create_app
 
 
 @pytest.fixture
