@@ -3,7 +3,7 @@
 # ============================================================================
 # ----------------------------------------------------------------------------
 # 📋 【一、基础信息】
-# 文件路径: backend/packages/harness/agentflow/app/gateway/sse.py
+# 文件路径: backend/app/gateway/sse.py
 # 对标来源: evoflow/gateway/openai_stream_normalize.py / sse_ui_normalize.py
 #   原版做"OpenAI chunk → 前端 UI 事件"的归一化 + 大字段裁剪（sse_slim）。
 #   M7 裁剪：只做"回复文本逐块推送"这一件事，用 sse-starlette。

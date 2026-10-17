@@ -3,7 +3,7 @@
 # ============================================================================
 # ----------------------------------------------------------------------------
 # 📋 【一、基础信息】
-# 文件路径: backend/packages/harness/agentflow/app/gateway/model_store.py
+# 文件路径: backend/app/gateway/model_store.py
 # 对标来源: evoflow/persistence/model_connections.py + config 的 db 模型表
 #   原版模型配置持久化在 SQLite（evoflow_models），面板可增删改、不重启切换。
 #   M7 裁剪：只保留"一个对话模型连接"所需字段（对齐 ChatModelConfig）。

@@ -3,7 +3,7 @@
 # ============================================================================
 # ----------------------------------------------------------------------------
 # 📋 【一、基础信息】
-# 文件路径: backend/packages/harness/agentflow/app/gateway/routers/runs.py
+# 文件路径: backend/app/gateway/routers/runs.py
 # 对标来源: evoflow/gateway/routers/runs.py + chat_session_service（裁剪）
 #   原版 runs 偏"执行生命周期/取消"，对话流在 chat_session_service。
 #   M7 合并裁剪：发起 run → 查状态 → SSE 流式拿回复，三件套。

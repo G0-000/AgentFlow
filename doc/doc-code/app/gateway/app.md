@@ -1,7 +1,7 @@
 # gateway/app.py — app.py
 
 > **文件路径**: `backend/app/gateway/app.py`
-> **目录位置**: gateway → app.py
+> **目录位置**: app → gateway → app.py
 > **职责**: FastAPI 应用装配（create_app 工厂 + lifespan 初始化 + 挂 3 个 router）
 
 ## 📑 目录
@@ -11,7 +11,8 @@
 - [💡 设计思想](#💡-设计思想)
 - [🎯 实用场景](#🎯-实用场景)
 - [🧩 顺序执行链](#🧩-顺序执行链)
-- [❓ Q&A](#❓-qa)
+- [🧩 代码解析（成块对照 app.py）](#🧩-代码解析成块对照-apppy)
+- [❓ Q&A / 知识点](#❓-qa--知识点)
 - [⚠️ 风险点](#⚠️-风险点)
 
 ## 📋 结构图 / 思维图
@@ -21,6 +22,7 @@
 ```text
 ┌──────────────────────────────────────────────────────────────┐
 │ create_app(db_path?, runner?, config?) → FastAPI              │
+│   0. register_runtime_adapters()   ← R1 端口装配（工厂开头）  │
 │   lifespan:                                                  │
 │     ① init_db(db_path)            ← 复用 persistence.bootstrap│
 │     ② ModelStore.ensure_table()   ← gateway_models 幂等建表 │
@@ -36,7 +38,8 @@
 
 ```mermaid
 flowchart TD
-    A["create_app(db_path, runner, config)"] --> B["FastAPI(lifespan)"]
+    A["create_app(db_path, runner, config)"] --> A0["register_runtime_adapters() 装端口"]
+    A0 --> B["FastAPI(lifespan)"]
     B --> C["lifespan 启动"]
     C --> D["① init_db 建业务表"]
     D --> E["② ModelStore.ensure_table 建 gateway_models"]
@@ -62,7 +65,7 @@ flowchart TD
 
 ## 🎯 实用场景
 
-1. 本地起网关：`uvicorn agentflow.gateway.app:create_default_app --factory`
+1. 本地起网关：`uvicorn app.gateway.app:create_default_app --factory`
 2. 测试接线：`create_app(db_path=tmp_path/"t.db", runner=fake)` 注入临时库 + fake 执行体
 3. 生产迁移：启动时把 config.yaml 的 chat 配置种子进 SQLite（表空才写，不覆盖 API 建的模型）
 
@@ -82,16 +85,181 @@ request: POST /api/runs {message, thread_id?}
 
 SSE 子链（`GET /api/runs/{id}/stream`）：`_stream_run` → `app.state.runner(thread_id, message)` 逐块产文本 → `delta_event` 推流 → `done_event` 收尾并回写 run 状态。
 
-## ❓ Q&A
+**装配链（进程启动 → 服务就绪）**：
 
-**Q: 为什么不在模块层建 `app = create_default_app()`？**
-A: 那样测试 `import agentflow.gateway.app` 就会加载项目 config.yaml 并写默认库（副作用）。改成 uvicorn `--factory` 显式触发，测试按需 `create_app()`。
+```text
+uvicorn --factory app.gateway.app:create_default_app
+   ▼  create_default_app()
+   ▼  load_dotenv(PROJECT_ROOT/.env)                        ← 环境变量（失败仅 debug 日志）
+   ▼  load_config(config.yaml) → AppConfig                  ← 全局配置唯一入口
+   ▼  create_app(config=cfg)
+   ▼  register_runtime_adapters()                           ← ① R1 端口装配（幂等）
+   ▼  FastAPI(lifespan=lifespan, docs_url=/docs)
+   ▼  app.state 装配: model_store/sessions/runs/runner      ← ② 依赖注入落点
+   ▼  include_router × 3（models/runs/threads）             ← ③ 挂 API
+   ▼  lifespan 触发:
+   ▼  init_db → ensure_table → seed_primary                 ← ④ 三初始化（幂等）
+   ▼  GET /health → {"status":"ok"}                         ← 服务就绪
+```
 
-**Q: 默认 runner 为什么是缓冲式（invoke 完才出块）？**
-A: M7 先保证链路通；逐 token 真流式后续在 `_build_default_runner` 用队列+线程增强，测试用 fake runner 已能验证"逐块推送"语义。
+## 🧩 代码解析（成块对照 app.py）
+
+### 块 1：imports + 端口装配钩子
+
+```python
+from agentflow.config.app_config import AppConfig, load_config
+from agentflow.config.model_config import ModelConfig  # noqa: F401  (类型标注用)
+from agentflow.config.paths import PROJECT_ROOT, default_db_path
+from agentflow.persistence.bootstrap import init_db
+from agentflow.persistence.session_repositories import SessionRepository
+from fastapi import FastAPI
+
+from app.gateway.model_store import ModelStore
+from app.gateway.routers import models as models_router
+from app.gateway.routers import runs as runs_router
+from app.gateway.routers import threads as threads_router
+```
+
+- **`app.*` 是 backend 顶层应用层**（严格对齐原版 `EvoFlow/backend/app/`）：核心层（`agentflow.*`）反向 import 应用层在 R1 里是禁止的，方向只允许 `app → agentflow`（见块 3 的 `_build_default_runner`）。
+- `ModelConfig` 带 `noqa: F401`：只用于类型标注（`seed_primary(cfg: ChatModelConfig)`），运行时不需要。
+
+### 块 2：`_build_default_runner` —— 真 agent 执行体（每次现场读主模型）
+
+```python
+def _build_default_runner(db_path: str, model_store: ModelStore):
+    async def runner(thread_id: str, message: str) -> AsyncIterator[str]:
+        import anyio
+        from agentflow.agents.checkpointer.provider import create_sqlite_checkpointer
+        from agentflow.agents.lead_agent.agent import make_lead_agent
+        from agentflow.models.factory import create_chat_model
+        from langchain_core.messages import HumanMessage
+
+        row = model_store.get_primary()
+        if row is None:
+            raise RuntimeError("未配置任何模型，请先 POST /api/models 添加")
+        cfg = ModelStore.to_chat_config(row)
+        model = create_chat_model(cfg)
+        checkpointer = create_sqlite_checkpointer(db_path)
+        agent = make_lead_agent(model=model, checkpointer=checkpointer, tools=[], middlewares=[])
+
+        def _invoke() -> str:
+            resp = agent.invoke(
+                {"messages": [HumanMessage(content=message)]},
+                config={"configurable": {"thread_id": thread_id}},
+            )
+            msgs = (resp.get("messages") if isinstance(resp, dict)
+                    else getattr(resp, "messages", []))
+            return msgs[-1].content if msgs else ""
+
+        text = await anyio.to_thread.run_sync(_invoke)   # 同步 invoke 扔线程池，不阻塞事件循环
+        yield text
+
+    return runner
+```
+
+**关键点**：
+
+- **函数内延迟 import 一切**（`anyio`/`lead_agent`/`factory`/`langchain`）：`create_app` 被测试 import 时不拉进整个 agent 栈，测试注入 fake runner 时这些 import 根本不执行。
+- **`get_primary()` 现场读取**：模型配置存 SQLite，这里每次 run 都重新查主模型——**改配置不重启进程即生效**（M7 验收点 4 的实现核心）。
+- **`anyio.to_thread.run_sync(_invoke)`**：`agent.invoke` 是同步阻塞调用（LangGraph 同步 API），直接放在 async 函数里会卡死 FastAPI 事件循环；扔线程池跑，事件循环保持响应。这就是"缓冲式"——整段回复一次取回再 yield，不是逐 token。
+- 返回 `AsyncIterator[str]`（`yield text` 一次产一个完整块）：与 SSE 路由 `async for chunk in runner(...)` 的消费方式对齐。
+
+### 块 3：`create_app` —— 工厂核心（端口装配 + lifespan + state + router）
+
+```python
+def create_app(db_path=None, runner=None, config=None) -> FastAPI:
+    db_path = db_path or default_db_path()
+
+    # R1：把应用层适配器装进核心 runtime 端口（幂等；当前无真实适配器，仅占位）。
+    # 放在工厂开头：无论 lifespan 是否被测试触发，端口装配都执行一次。
+    from app.gateway.runtime_adapters import register_runtime_adapters
+    register_runtime_adapters()
+
+    @asynccontextmanager
+    async def lifespan(app: FastAPI):
+        init_db(db_path)                    # ① 业务表（sessions/messages/...）
+        store: ModelStore = app.state.model_store
+        store.ensure_table()                # ② gateway_models 建表（幂等）
+        if config is not None and config.models is not None:
+            store.seed_primary(config.models.chat)   # ③ yaml→SQLite（表空才种子）
+        yield
+
+    app = FastAPI(title="AgentFlow Gateway", version="0.1.0",
+                  lifespan=lifespan, docs_url="/docs")
+    app.state.db_path = db_path
+    app.state.model_store = ModelStore(db_path=db_path)
+    app.state.sessions = SessionRepository(db_path=db_path)
+    app.state.runs = {}                     # run_id -> run record（进程内执行态）
+    app.state.runner = runner or _build_default_runner(db_path, app.state.model_store)
+
+    app.include_router(models_router.router)
+    app.include_router(runs_router.router)
+    app.include_router(threads_router.router)
+
+    @app.get("/health")
+    async def health() -> dict:
+        return {"status": "ok", "db_path": db_path}
+    return app
+```
+
+**关键点**：
+
+- **端口装配放工厂开头而非 lifespan**：测试用 `TestClient` 有时不触发 lifespan（或触发时机不可控）；端口注册要"无论是否启动 lifespan 都执行一次"——这是 R1 机制可靠性的关键决策。
+- **`app.state` 是依赖注入落点**：3 个 router 通过 `request.app.state.xxx` 取 `model_store`/`sessions`/`runner`——路由层不直接 new 对象，可测试性来自这里。
+- **`app.state.runs = {}` 是内存注册表**：run 是"临时执行句柄"（状态/回复存内存），业务记录（会话+消息）落 SQLite，图状态落 checkpointer——进程重启 run_id 失效可接受（M7 单进程）。
+- **三个 router 各自 `prefix="/api"`**：挂载时不再加前缀，避免 `/api/api/...`。
+
+### 块 4：`create_default_app` —— 生产入口
+
+```python
+def create_default_app() -> FastAPI:
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(PROJECT_ROOT / ".env")
+    except Exception:
+        logger.debug("dotenv load skipped", exc_info=True)
+    cfg = load_config(str(PROJECT_ROOT / "config.yaml"))
+    return create_app(config=cfg)
+```
+
+**关键点**：
+
+- **uvicorn `--factory` 专用**：`uvicorn app.gateway.app:create_default_app --factory`，启动时执行一次、加载配置后建 app。
+- **`load_dotenv` 包 try**：无 dotenv 依赖（如精简部署）也不崩，仅 debug 日志。
+- **与块 3 测试路径对比**：生产 = `load_config(config.yaml)` + `create_app(config=cfg)`（lifespan 会种子 yaml 模型）；测试 = `create_app(db_path=tmp, runner=fake)`（无 config → 不迁移、不联网）。
+
+## ❓ Q&A / 知识点
+
+### 1. 为什么 R1 端口装配放 `create_app` 开头，而不是 lifespan 里？
+
+因为**测试可能不触发 lifespan**。`TestClient`（httpx/ASGITransport）对 lifespan 的触发取决于使用方式；而端口注册（`register_runtime_adapters`）是"进程级一次性的全局状态"，必须保证任何入口（测试/生产/只 import 模块）都执行过。放工厂开头 = 只要调 `create_app()` 就注册，幂等（重复调不报错）。
+
+### 2. `app.state.runs` 为什么用内存 dict，不落 SQLite？
+
+**run 是"临时执行句柄"不是"业务记录"**。三处存储分工：
+- 会话+明文消息 → `sessions` SQLite（可审计、可恢复）；
+- 图状态（多轮上下文）→ LangGraph checkpointer SQLite；
+- run 状态（pending/running/success + 回复文本）→ 内存 dict。
+run 的语义是一次执行的生命周期：GET 查状态、SSE 推流结束后就没用了。落库反而引入"run_id 垃圾回收"问题。M7 单进程够用；多副本场景才需要把 run 注册表换成 Redis/DB。
+
+### 3. 默认 runner 为什么是"缓冲式"？真流式怎么做？
+
+`_invoke()` 用 `agent.invoke` **同步等整段回复**，`anyio.to_thread.run_sync` 只是"不阻塞事件循环"，不是"逐 token 流"。所以前端收到的是 `delta_event(整段)` + `done`。真正的逐 token 流需要：LangGraph `.astream` + asyncio.Queue 桥接线程 → 路由逐块 yield。M7 先保证"链路通 + 语义对"（fake runner 已能验证逐块推送），真流式列 M8+（`_build_default_runner` 内增强，接口不变）。
+
+### 4. `seed_primary` 为什么只种子 `config.models.chat`？
+
+M7 的对话链路只支持一个"主对话模型"（`get_primary()` 单行语义）。`config.yaml` 里 models 域可能有多个配置（chat/embedding 等），M7 只把 `chat` 种子为主模型，embedding 等 M8+ 再扩展——`to_chat_config` 也只转对话模型字段（provider/base_url/model/api_key/temperature）。
+
+### 5. 测试为什么能全程离线、不调真实模型？
+
+三层隔离：① `create_app(db_path=tmp)` 用临时库，不碰项目 config.yaml；② `runner=fake` 覆盖 `_build_default_runner`——路由只认 `app.state.runner` 这个注入点，根本不会走到真 agent 的 import；③ 不传 `config` → lifespan 跳过 `seed_primary`，不读 yaml。测试验证的是**装配与路由语义**，不是模型行为。
 
 ## ⚠️ 风险点
 
 1. 不要在模块层执行 `create_default_app()`（测试 import 副作用）
 2. uvicorn 入口必须用 `--factory`，否则拿不到加载配置后的 app
 3. lifespan 迁移只在表空时种子——用户经 API 建的模型不会被 yaml 覆盖
+4. 默认 runner 是缓冲式（invoke 完才出块）；真流式后续在 `_build_default_runner` 增强，接口 `AsyncIterator[str]` 已为流式预留
+5. 同步 `agent.invoke` 必须走线程池（`anyio.to_thread`），直接放 async 函数会阻塞事件循环
+
+> 页脚：2026-10-13 · M7 Gateway 核心 · 对齐 `evoflow/gateway/app.py`（裁剪）

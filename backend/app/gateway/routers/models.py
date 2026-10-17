@@ -3,7 +3,7 @@
 # ============================================================================
 # ----------------------------------------------------------------------------
 # 📋 【一、基础信息】
-# 文件路径: backend/packages/harness/agentflow/app/gateway/routers/models.py
+# 文件路径: backend/app/gateway/routers/models.py
 # 对标来源: evoflow/gateway/routers/models.py（裁剪：原版 1000+ 行/几十个端点）
 #   M7 只保留：列表 / 创建 / 详情 / PATCH（含设为主模型）/ 删除。
 # 里程碑: M7（Gateway 核心）

@@ -145,6 +145,199 @@ flowchart TD
     J --> K["落 assistant 消息 + touch"]
 ```
 
+## 🧩 代码解析（成块对照 feishu.py）
+
+### 块 1：`_FeishuInboundDeduper.is_duplicate` —— 两级去重窗口
+
+```python
+def is_duplicate(self, *, msg_id: str, chat_id: str, text: str) -> bool:
+    now = time.time()
+    self._cleanup(self._by_msg_id, now, self._id_ttl)
+    self._cleanup(self._by_content, now, self._content_ttl)
+
+    mid = str(msg_id or "").strip()
+    if mid:
+        if mid in self._by_msg_id:
+            return True
+        self._by_msg_id[mid] = now
+
+    # 归一化正文：折叠空白、去掉 @_user_N 占位
+    body = re.sub(r"\s+", " ", str(text or "").strip())
+    body = re.sub(r"@_user_\d+\s*", "", body).strip()
+    if body:
+        content_key = f"{chat_id}:{hashlib.sha1(body.encode('utf-8')).hexdigest()[:16]}"
+        if content_key in self._by_content:
+            return True
+        self._by_content[content_key] = now
+    return False
+```
+
+**关键点**：
+
+- **先清理过期再判重**：每进来一条先 `_cleanup` 掉超 TTL 的旧键（`now - ttl` 之前的 pop）——窗口是"滑动窗口"，不是"定时清"；dict 无限增长被这个前置清理拦住。
+- **两级判重是"或"关系，不是"与"**：id 窗口命中 → True；id 窗口未命中 → 继续查内容窗口。两条独立防线：id 防"同消息重投"，内容防"换新 id 的重投"。
+- **内容归一化 `re.sub(r"@_user_\d+\s*", "", body)`**：飞书把 @某人 渲染成 `@_user_1` 这类占位符——同一句话"@A 说"和"@B 说"归一化后相同？不，`@_user_1` 被剥掉后 `body` 只剩"说"——**这会让 @不同人的相同文本被判重**。这是刻意取舍（对齐原版），窗口只有 20s，可接受。
+- **内容 key = `chat_id:sha1(body)[:16]`**：加 chat_id 前缀（不同会话的相同消息不算重）+ 16 位 hash（碰撞概率极低，比存全文省内存）。
+
+### 块 2：`_get` / `_extract_text` / `parse_inbound` —— 事件解析与双形态兼容
+
+```python
+def _get(obj: Any, path: tuple[str, ...], default: Any = None) -> Any:
+    """按属性路径取值，每段既支持 getattr（SDK 对象）也支持 dict[key]。"""
+    cur = obj
+    for part in path:
+        if cur is None:
+            return default
+        cur = cur.get(part) if isinstance(cur, dict) else getattr(cur, part, None)
+    return cur if cur is not None else default
+
+def _extract_text(content_raw: Any) -> str:
+    """从 message.content（JSON 字符串）解析出纯文本（含富文本 post）。"""
+    if not content_raw:
+        return ""
+    if isinstance(content_raw, dict):
+        content = content_raw
+    else:
+        try:
+            content = json.loads(str(content_raw))
+        except (json.JSONDecodeError, TypeError, ValueError):
+            return str(content_raw).strip()
+    ...
+    # 纯文本消息：content 里有 "text" 字段
+    if "text" in content:
+        return str(content["text"])
+    # 富文本 post：content 是 [[{tag:text/at, text:...}, ...], ...]
+    inner = content.get("content")
+    if isinstance(inner, list):
+        paragraphs = [...]
+        for para in inner:
+            if isinstance(para, list):
+                parts = [el.get("text", "") for el in para
+                         if isinstance(el, dict) and el.get("tag") in ("text", "at") and el.get("text")]
+                if parts:
+                    paragraphs.append(" ".join(parts))
+        return "\n\n".join(paragraphs)
+    return ""
+```
+
+**关键点**：
+
+- **`_get` 双形态兼容**：飞书 SDK 事件是对象（`event.event.message.message_id`），测试用 `SimpleNamespace`（也是 getattr），但也可能有人传 dict——`_get` 每段判断 `isinstance(cur, dict)`，**SDK 对象 / dict / 测试桩三种形态统一访问**。这是"测试能离线"的根基之一。
+- **`_extract_text` 两种消息形态**：飞书 `message.content` 是 JSON 字符串：纯文本消息 `{"text":"你好"}`；富文本 post 消息 `{"content":[[{tag:"text",text:"你好"},{tag:"at",...}],...]}`。解析失败（非 JSON）时**原样返回字符串**（兜底，至少不丢内容）。
+- **富文本只取 `tag in ("text","at")`**：图片/表情等非文本元素被过滤——Agent 只拿文字（图片等 M7 不处理）。
+
+### 块 3：`FeishuChannel.on_message` —— 主链路（收 → 去重 → 跑 → 回发 → 落库）
+
+```python
+def on_message(self, event: Any) -> None:
+    parsed = parse_inbound(event)
+    if parsed is None:
+        return
+    if self.dedup.is_duplicate(msg_id=parsed.msg_id, chat_id=parsed.chat_id, text=parsed.text):
+        logger.info("[Feishu] skip duplicate inbound: ...")
+        return
+    thread_id = self.thread_id_for(parsed.chat_id)
+    if self.session_repo is not None:
+        self.session_repo.create(thread_id)
+        self.session_repo.add_message(thread_id, "user", parsed.text)
+    try:
+        reply = self.agent_runner(thread_id, parsed.text)
+    except Exception:
+        logger.exception("[Feishu] agent run failed: chat=%s", parsed.chat_id)
+        reply = "(Agent 调用失败，请稍后再试)"
+    reply = feishu_outbound_text(reply or "")
+    if not reply.strip():
+        reply = _EMPTY_REPLY
+    try:
+        self.sender(parsed.chat_id, parsed.reply_to, reply)
+    except Exception:
+        logger.exception("[Feishu] send reply failed: chat=%s", parsed.chat_id)
+        return
+    if self.session_repo is not None:
+        self.session_repo.add_message(thread_id, "assistant", reply)
+        self.session_repo.touch(thread_id)
+```
+
+**关键点**：
+
+- **整条链路三个 try/except 分界**：agent 失败 → 兜底文案继续发（用户至少收到"稍后再试"）；sender 失败 → 记日志 return（**不回发但已落库 user 消息**，会话记录仍完整）；其余解析/去重失败 → 直接 return（不打断 lark 回调线程）。
+- **`session_repo` 可空**：`if self.session_repo is not None`——测试不注入 repo 也能跑（只测链路语义）；生产注入真实 repo 落库。
+- **`_EMPTY_REPLY = "（空回复）"`**：飞书不允许发空文本消息，Agent 返回空串时兜底。
+- **落 assistant 消息 + `touch`**：回复发出后更新会话（消息落库 + 刷新 updated_at），与 gateway 的 `sessions` 表共用——**CLI/网关/飞书三入口看到的会话历史一致**。
+
+### 块 4：`feishu_outbound_text` —— 澄清 JSON → Markdown
+
+```python
+def feishu_outbound_text(text: str) -> str:
+    raw = text or ""
+    s = raw.strip()
+    if len(s) < 2 or s[0] != "{":
+        return raw                      # 不是 JSON 样子 → 原样返回
+    try:
+        obj = json.loads(s)
+    except (json.JSONDecodeError, TypeError, ValueError):
+        return raw
+    if not isinstance(obj, dict):
+        return raw
+    if not (set(obj) & {"question", "questions", "options", "title", "context"}):
+        return raw                      # 启发式：不像澄清 schema → 原样
+    lines = ["❔ **需要您确认**", ""]
+    ...
+    body = "\n".join(lines).strip()
+    return body or raw
+```
+
+**关键点**：
+
+- **三道"不像就别动"护栏**：① 开头不是 `{` → 原样；② 不是合法 JSON dict → 原样；③ 键集合与澄清 schema 无交集 → 原样。**普通对话文本永不被动**，只有"长得像 ask_clarification 输出"的 JSON 才转 Markdown。
+- **启发式键匹配**：`question/questions/options/title/context` 是澄清 schema 的特征键——用 `set(obj) & {...}` 判断交集，不要求全键匹配（容错字段缺失）。
+- 这是**可逆的安全转换**：误判只会把普通文本原样返回（护栏 1/2 挡掉绝大多数），不会把用户消息改写。
+
+### 块 5：`serve` —— 生产装配（延迟 import + 独立运行）
+
+```python
+def serve(*, app_id: str, app_secret: str) -> None:
+    import lark_oapi as lark                      # 延迟 import：顶层不依赖 SDK
+    from agentflow.agents.checkpointer.provider import create_sqlite_checkpointer
+    from agentflow.agents.lead_agent.agent import make_lead_agent
+    ...
+    cfg = load_config(str(PROJECT_ROOT / "config.yaml"))
+    db_path = default_db_path()
+    init_db(db_path)
+    checkpointer = create_sqlite_checkpointer(db_path)
+    model = create_chat_model(cfg.models.chat)
+    agent = make_lead_agent(model=model, checkpointer=checkpointer, tools=[], middlewares=[])
+
+    def agent_runner(thread_id, text) -> str:     # 同步 invoke → 最后一条 AI 文本
+        resp = agent.invoke({"messages": [HumanMessage(text)]},
+                            config={"configurable": {"thread_id": thread_id}})
+        msgs = resp.get("messages") if isinstance(resp, dict) else getattr(resp, "messages", [])
+        return str(msgs[-1].content) if msgs else ""
+
+    client = lark.Client.builder().app_id(app_id).app_secret(app_secret).build()
+    def sender(chat_id, reply_to, text) -> None:
+        request = (lark.im.v1.ReplyMessageRequest.builder().message_id(reply_to)
+                   .request_body(lark.im.v1.ReplyMessageRequestBody.builder()
+                                 .msg_type("text").content(json.dumps({"text": text})).build()).build())
+        client.im.v1.message.reply(request)
+
+    channel = FeishuChannel(agent_runner=agent_runner, sender=sender, session_repo=sessions)
+    event_handler = (lark.EventDispatcherHandler.builder("", "")
+                     .register_p2_im_message_receive_v1(channel.on_message).build())
+    ws_client = lark.ws.Client(app_id=app_id, app_secret=app_secret,
+                               event_handler=event_handler, log_level=lark.LogLevel.INFO)
+    channel._running = True
+    ws_client.start()  # 阻塞
+```
+
+**关键点**：
+
+- **`serve()` 内全部延迟 import**：模块顶层只 import `app.channels.base`——测试 `import feishu` 不需要 lark/agent 栈。`serve()` 是"重装配"，只在真要跑渠道时执行。
+- **装配与 CLI 同源**：`load_config → init_db → create_sqlite_checkpointer → create_chat_model → make_lead_agent`——与 `cli/main.py` 同一套配置/存储/模型工厂，**不是另造一套**。裁剪掉工具/中间件/记忆（M7 渠道最小集）。
+- **`agent_runner` 同步 invoke + 取最后一条 AI 文本**：与 gateway `_build_default_runner` 同款 `msgs[-1].content` 逻辑（`_ai_text` 模式）——三条入口（CLI/gateway/飞书）取回复的方式完全一致。
+- **`ws_client.start()` 阻塞主线程**：渠道是独立进程（`python -m app.channels.feishu` 或类似入口），不挂 gateway app——M7 验收点 5 的"独立运行"。
+- **`on_message` 跑在 lark 回调线程**（同步）：`start()` 抛 `NotImplementedError` 引导用 `serve()`——防止误用抽象方法启动。
+
 ## ❓ Q&A / 知识点
 
 ### 1. 为什么要两级去重？只用 message_id 不够吗？
@@ -178,3 +371,5 @@ flowchart TD
 3. **`reply_to` 楼中楼必须用 root_id**——否则飞书报 `230002`；改回复锚点逻辑前先确认。
 4. **去重窗口内相同消息会被吞**——这是刻意取舍，勿把 `content_ttl` 调大。
 5. **`serve()` 才真实装配模型/客户端**——单测走注入式构造；不要在测试里直接调 `serve()`（会连飞书）。
+
+> 页脚：2026-10-13 · M7 IM 渠道 · 对齐 `evoflow/app/channels/feishu.py`（裁剪）

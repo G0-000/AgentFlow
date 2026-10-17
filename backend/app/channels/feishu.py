@@ -3,7 +3,7 @@
 # ============================================================================
 # ----------------------------------------------------------------------------
 # 📋 【一、基础信息】
-# 文件路径: backend/packages/harness/agentflow/app/channels/feishu.py
+# 文件路径: backend/app/channels/feishu.py
 # 对标来源: evoflow/app/channels/feishu.py（原版 3232 行）+
 #           feishu_message_format.py（发消息文本格式化）
 # 里程碑: M7（验收点 5：飞书发消息给机器人 → 收到 Agent 回复）

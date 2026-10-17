@@ -3,7 +3,7 @@
 # ============================================================================
 # ----------------------------------------------------------------------------
 # 📋 【一、基础信息】
-# 文件路径: backend/packages/harness/agentflow/app/gateway/routers/threads.py
+# 文件路径: backend/app/gateway/routers/threads.py
 # 对标来源: evoflow/gateway/routers/threads.py（裁剪：原版含文件系统/产物端点）
 #   M7 只保留会话本身的创建/列表/删除（业务会话，复用 SessionRepository）。
 # 里程碑: M7（Gateway 核心）

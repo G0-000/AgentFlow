@@ -3,7 +3,7 @@
 # ============================================================================
 # ----------------------------------------------------------------------------
 # 📋 【一、基础信息】
-# 文件路径: backend/packages/harness/agentflow/app/channels/base.py
+# 文件路径: backend/app/channels/base.py
 # 对标来源: evoflow/app/channels/base.py（原版 181 行，含 MessageBus/文件上传/流式补丁）
 # 里程碑: M7（IM 渠道：飞书先发）
 #   裁剪决策: 原版靠 MessageBus 解耦「收消息 ↔ 跑 Agent ↔ 回发」，
