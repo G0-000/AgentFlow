@@ -161,7 +161,7 @@ async def stream_run(request: Request, run_id: str):
 ## ❓ Q&A / 知识点
 
 **Q: run 注册表为什么放内存？**
-A: run 是执行态；其持久记录是 session_messages + checkpoint。M7 单进程够用，重启后 run_id 失效可接受。多副本/多进程场景需要换 Redis/DB（学习路线 M8+ 已标注）。
+A: run 是执行态；其持久记录是 session_messages + checkpoint。M7 单进程够用，重启后 run_id 失效可接受。多副本/多进程场景需要换 Redis/DB（学习路线 M8.1 已标注）。
 
 **Q: 重复订阅 stream 会怎样？**
 A: 每次 GET stream 都重新执行一次 runner（独立执行）——`_stream_run` 每次从 `run["message"]` 重新跑。这是"拉式流"语义：订阅一次 = 执行一次。若要做"一次执行多端订阅"（SSE 扇出），需要把 runner 执行与连接解耦（队列广播），M7 不做。

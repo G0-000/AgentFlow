@@ -51,9 +51,11 @@ from agentflow.config.model_config import ModelConfig  # noqa: F401  (类型标�
 from agentflow.config.paths import PROJECT_ROOT, default_db_path
 from agentflow.persistence.bootstrap import init_db
 from agentflow.persistence.session_repositories import SessionRepository
+from agentflow.webui.auth import hash_password
 from fastapi import FastAPI
 
 from app.gateway.model_store import ModelStore
+from app.gateway.routers import auth as auth_router
 from app.gateway.routers import models as models_router
 from app.gateway.routers import runs as runs_router
 from app.gateway.routers import threads as threads_router
@@ -108,6 +110,7 @@ def create_app(
     db_path: str | None = None,
     runner=None,
     config: AppConfig | None = None,
+    auth_config: dict | None = None,
 ) -> FastAPI:
     """创建 FastAPI 应用。
 
@@ -116,6 +119,9 @@ def create_app(
         runner: 注入的执行体 async(thread_id, message)->AsyncIterator[str]；
                 缺省装真 agent。测试传 fake → 离线。
         config: 应用配置（含 models 时做 yaml→SQLite 迁移）；缺省不迁移。
+        auth_config: 登录配置 dict（M8：{username, password_hash, jwt_secret}）。
+                由 create_default_app 从 config.yaml 的 auth 段装配；
+                测试不传 → /api/auth/login 返回 503（未配置）。
     """
     db_path = db_path or default_db_path()
 
@@ -150,11 +156,13 @@ def create_app(
     app.state.sessions = SessionRepository(db_path=db_path)
     app.state.runs = {}  # run_id -> run record（进程内执行态）
     app.state.runner = runner or _build_default_runner(db_path, app.state.model_store)
+    app.state.auth_config = auth_config  # M8 登录配置（None → login 返回 503）
 
-    # 挂 3 个 router（前缀已在各 router 内定义为 /api）
+    # 挂 4 个 router（前缀已在各 router 内定义为 /api）
     app.include_router(models_router.router)
     app.include_router(runs_router.router)
     app.include_router(threads_router.router)
+    app.include_router(auth_router.router)
 
     @app.get("/health")
     async def health() -> dict:
@@ -172,4 +180,32 @@ def create_default_app() -> FastAPI:
     except Exception:
         logger.debug("dotenv load skipped", exc_info=True)
     cfg = load_config(str(PROJECT_ROOT / "config.yaml"))
-    return create_app(config=cfg)
+    return create_app(config=cfg, auth_config=_load_auth_config())
+
+
+def _load_auth_config() -> dict | None:
+    """从 config.yaml 的 auth 段装配登录配置（M8）。
+
+    学习版：明文密码启动时哈希一次（不落盘）；生产应预存 hash_password 结果。
+    auth 段缺失/格式错 → 返回 None（/api/auth/login 将返回 503 诚实报错）。
+    """
+    try:
+        import yaml
+
+        with open(PROJECT_ROOT / "config.yaml", encoding="utf-8") as f:
+            raw = yaml.safe_load(f) or {}
+        raw_auth = raw.get("auth")
+        if not isinstance(raw_auth, dict):
+            return None
+        username = str(raw_auth.get("username") or "").strip()
+        password = str(raw_auth.get("password") or "")
+        if not username or not password:
+            return None
+        return {
+            "username": username,
+            "password_hash": hash_password(password),
+            "jwt_secret": str(raw_auth.get("jwt_secret") or "agentflow-m8-dev-secret"),
+        }
+    except Exception:
+        logger.warning("auth config read failed; /api/auth/login disabled", exc_info=True)
+        return None

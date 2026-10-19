@@ -4,6 +4,43 @@
 > **目录位置**: runtime → ports.py
 > **职责**: R1 分层下，核心层反向调用应用层的唯一 sanctioned 桥（端口注册表 + 域访问器）
 
+---
+
+## R1 是什么（先读这段，再读下文）
+
+**R1 = 项目三层架构的依赖规则 #1（架构红线）**：
+
+> **应用层（`app/`）可以 import 核心层（`agentflow.*`）；反向（核心层 import `app.*`）禁止。**
+
+```
+应用层 app/（gateway / channels）    ──允许──▶  核心层 agentflow/（agents / tools / ...）
+核心层 agentflow/                   ──禁止──▶  应用层 app/
+```
+
+**为什么禁止反向**：核心层是"可脱离具体应用独立运行"的库——一旦 `agentflow/` 下出现 `import app.*`，核心库就变成"只有在这个应用里才能跑"，分层即失效。
+
+**反向桥（R1 的实现通道）**：核心层需要应用层能力（SSE 广播、渠道、语音、诊断）时，**不能**直接 import 应用层，而是由**应用层主动把自己的适配器注册进核心层的端口注册表**：
+
+```
+应用层启动（create_app）
+  └─ app.gateway.runtime_adapters.register_runtime_adapters()
+       └─ ports.register("events.broadcaster", 适配器)   ← 塞进核心层注册表
+核心层以后要用应用层能力
+  └─ from agentflow.runtime import ports                  ← 只 import 核心层自己的文件
+       └─ await ports.broadcast_event(...)                 ← 通过端口访问器调用
+```
+
+依赖方向全程是 `app → ports.register`，核心层只认识 `agentflow.runtime.ports`——**物理上不出现 `import app.*`**，R1 成立。
+
+**两个关键修饰语的精确含义**：
+
+- **"幂等"**：`register_runtime_adapters()` 内部有模块级 `_registered` 标志——测试里反复 `create_app()` 也只真正注册一次，防重复装配/重复副作用。
+- **"当前无真实适配器，仅占位"**：注册函数体目前是空实现 + 分域注释（只挂 events / automation 两个代表访问器），没有真实广播器——M8.1 出现真实应用层实现（SSE broadcaster、channels、speech 等）时按注释补 `ports.register(...)` 即可。
+
+> 端口 key 是稳定契约：`events.broadcaster`、`automation.outer_rules` 这类字符串改名 = 跨进程契约变更，必须同步注册端（runtime_adapters.py）与本文档。
+
+---
+
 ## 📑 目录
 
 - [📋 结构图](#📋-结构图)
@@ -55,7 +92,7 @@
 
 ## 💡 设计思想
 
-1. **R1 物理隔离**：`agentflow/` 下任何文件不得 `import app.*`。核心代码若需要应用层能力（SSE、通道、语音、诊断），一律改走本文件端口——把"随处 try import app"收敛成"只 import 本文件一处"。
+1. **R1 物理隔离**：`agentflow/` 下任何文件不得 `import app.*`。核心代码若需要应用层能力（SSE、通道、语音、诊断），一律改走本文件端口——把"随处 try import app"收敛成"只 import 本文件一处"。注册方向由应用层主动（`register_runtime_adapters()` 在 create_app 启动时调用），核心层只做"查表 + 降级"——详见开篇「R1 是什么」。
 2. **无适配器即降级**：每个访问器都是 `impl = get(...); if impl is None: 安全默认; else 调用`。这等价于它取代的旧版 `try: from app... except ImportError`，但语义集中、可测。
 3. **端口 key 是稳定契约**：`events.broadcaster`、`automation.outer_rules` 这类字符串 key 改名 = 跨进程契约变更，必须同步注册端与基线文档。
 
@@ -173,7 +210,7 @@ broadcaster = _BroadcasterProxy()
 1. 本文件严禁 `import app.*`——这是 R1 的物理保证，一旦破例分层即失效。
 2. 访问器一律 `try/降级` 包裹，禁止让异常冒泡进核心主循环。
 3. 端口 key 字符串（`events.broadcaster` 等）改名 = 跨进程契约变更，需同步 `runtime_adapters.py` 与基线文档。
-4. 当前骨架只移植了 events / automation 代表访问器；stream_inject/middle_layer/proxy/reconcile/snapshot/defer/mirror/kb_citations/channels/speech/diagnostics/logs/goal/unattended 待 M8+ 出现真实应用层实现后按原版同构补齐。
+4. 当前骨架只移植了 events / automation 代表访问器；stream_inject/middle_layer/proxy/reconcile/snapshot/defer/mirror/kb_citations/channels/speech/diagnostics/logs/goal/unattended 待 M8.1 出现真实应用层实现后按原版同构补齐。
 
 ---
-_移植对齐 EvoFlow 端口机制（差异 #1），2026-10-13。_
+_移植对齐 EvoFlow 端口机制（差异 #1），2026-10-13。2026-10-18 补开篇「R1 是什么」（依赖规则定义 + 反向桥 + 幂等/占位解释）。_

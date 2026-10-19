@@ -52,7 +52,7 @@
 - 返回的是轻量句柄 `GoalGraph`，其 `.build(agent, model, goal_repo)` 再
   装配出真实可跑的 `GoalEngine`；
 - **不伪造 StateGraph**——避免声明一套跑不起来的图。
-- 完整 StateGraph 移植列 **M8+ 后续**，届时句柄可替换为真编译图。
+- 完整 StateGraph 移植列 **M8.1 后续**，届时句柄可替换为真编译图。
 
 ### 偏差 2：checkpointer 工厂已对齐为无参 async context manager（无多后端开关）
 

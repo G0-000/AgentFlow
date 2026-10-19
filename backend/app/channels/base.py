@@ -5,32 +5,33 @@
 # 📋 【一、基础信息】
 # 文件路径: backend/app/channels/base.py
 # 对标来源: evoflow/app/channels/base.py（原版 181 行，含 MessageBus/文件上传/流式补丁）
-# 里程碑: M7（IM 渠道：飞书先发）
+# 里程碑: M7（IM 渠道：飞书先发；2026-10-18 对齐原版归属——InboundMessage 迁回
+#   message_bus.py，本文件只留 Channel ABC + re-export 保旧 import 兼容）
 #   裁剪决策: 原版靠 MessageBus 解耦「收消息 ↔ 跑 Agent ↔ 回发」，
 #   并支持文件上传、流式卡片补丁、多账号。M7 只做「单轮：收→跑 Agent→回发」，
-#   故去掉 Bus/上传/流式，只留 Channel ABC + 归一化入站消息 InboundMessage。
+#   故去掉 Bus/上传/流式，只留 Channel ABC；MessageBus 已按原版结构补位于
+#   message_bus.py（M8+ 多渠道时接线）。
 # ----------------------------------------------------------------------------
 # 🧩 【二、模块结构图】
 # ┌───────────────────────────────────────────────────────┐
-# │ InboundMessage(dataclass)  归一化入站消息              │
-# │   channel / chat_id / user_id / text / msg_id /       │
-# │   reply_to / metadata                                 │
-# │                                                       │
 # │ Channel(ABC)                                          │
 # │   name: str = "channel"                              │
 # │   start() / stop()            ← 抽象生命周期           │
+# │                                                       │
+# │ InboundMessage（re-export）← 定义在 message_bus.py    │
+# │   归一化入站消息（channel_name/chat_id/user_id/text…）│
 # └───────────────────────────────────────────────────────┘
 # ----------------------------------------------------------------------------
 # 💡 【三、设计思想】
 # 1. 归一化: 各 IM 平台事件结构不同（飞书/企微/Slack…），统一折叠成 InboundMessage，
-#    下游「跑 Agent → 回发」逻辑与具体平台解耦。
+#    下游「跑 Agent → 回发」逻辑与具体平台解耦（定义见 message_bus.py，对齐原版归属）。
 # 2. 最小抽象: 原版 Channel 还挂 bus.send_file/_on_outbound 等；M7 暂不需要，
 #    需要时再按本基类扩展（不要一次性搬全原版）。
 # ----------------------------------------------------------------------------
 # 📤 【四、对外导出 & 内部函数】
 # ✅ 对外导出
-# 1. InboundMessage: 归一化入站消息 dataclass
-# 2. Channel: IM 渠道抽象基类
+# 1. Channel: IM 渠道抽象基类
+# 2. InboundMessage: re-export（自 message_bus.py，旧 import 路径不变）
 # 🔒 内部私有函数
 # 无
 # ----------------------------------------------------------------------------
@@ -38,42 +39,15 @@
 # 1. Channel.start/stop 是抽象方法：子类不实现直接实例化报错（ABC 机制）
 # 2. InboundMessage.reply_to 语义 = 平台侧「要回复的那条消息 id」
 #    （飞书 im.v1.message.reply 用它），不是 LangGraph thread_id
+#    ⚠️ 2026-10-18 起 reply_to/msg_id 已从 InboundMessage 移除（对齐原版字段集），
+#    飞书平台专用字段保留在 feishu.py 的 ParsedInbound——见 message_bus.py。
 # ============================================================================
 
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass, field
-from typing import Any
 
-
-@dataclass
-class InboundMessage:
-    """一条外部 IM 收到、已归一化的入站消息。
-
-    把各平台 SDK 的事件对象折叠成平台无关的字段；下游渠道逻辑只认它。
-    """
-
-    channel: str
-    """来源渠道名（如 "feishu"）。"""
-
-    chat_id: str
-    """平台侧会话/群 id（用于映射 LangGraph thread_id）。"""
-
-    user_id: str
-    """发送者 id（平台 open_id 等，审计/限流用）。"""
-
-    text: str
-    """归一化后的纯文本（已去 @、去 BOM/零宽字符）。"""
-
-    msg_id: str = ""
-    """平台侧消息 id（去重主键之一）。"""
-
-    reply_to: str = ""
-    """回发时要 reply 的那条消息 id（楼中楼取 root_id，否则取 msg_id）。"""
-
-    metadata: dict[str, Any] = field(default_factory=dict)
-    """扩展字段（chat_type / root_id 等调试信息）。"""
+from app.channels.message_bus import InboundMessage  # noqa: F401  (re-export)
 
 
 class Channel(ABC):

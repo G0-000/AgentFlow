@@ -27,7 +27,7 @@
 
 ## 一、映射总表（AgentFlow 侧 5 个文件）
 
-| AgentFlow 文件 | 原版对应文件 | 对应程度 | 差异说明 | 后续（M8+） |
+| AgentFlow 文件 | 原版对应文件 | 对应程度 | 差异说明 | 后续（M8.1） |
 |---|---|---|---|---|
 | `paths.py`（M1） | `evoflow/config/paths.py` + `data_paths.py`（两者都要！） | ⚠️同名异构 | AgentFlow 一个文件干了原版两个文件的活：①根定位 AgentFlow=`parents[5]` 项目根，原版=`Paths` 类解析 `~/.evoflow`（构造参数>EVOFLOW_HOME>home 兜底）；②数据子目录原版分 `data/app/`、`data/observability/`、`data/checkpoints/` 三库+logs，AgentFlow 只有一个 `data/agentflow.db` | 多库拆分（observability/checkpoints）时再引 `data_paths` 思路；root 策略暂不动 |
 | `models_yaml.py`（M1） | `evoflow/config/models_yaml.py` | ⚠️同名异构 | AgentFlow：固定 `chat`/`embedding` 两段 → 2 个 ChatModelConfig，单向（yaml→对象）。原版：`models.providers` 嵌套分组拍平/反序列化双向、URL 推 vendor、兼容旧式平铺 list、写回 yaml | 多模型列表/多供应商分组 + 面板回写时补 `providers` 拍平逻辑 |
@@ -68,7 +68,7 @@
 
 | 原版文件 | 一句话用途 | 对应学习章节 |
 |---|---|---|
-| `agents_config.py`（54KB） | 自定义 agent 全量配置 + SQLite 配置表 + 10s TTL 缓存 | M8+ agents 域（doc-code/agents/） |
+| `agents_config.py`（54KB） | 自定义 agent 全量配置 + SQLite 配置表 + 10s TTL 缓存 | M8.1 agents 域（doc-code/agents/） |
 | `agent_orchestration_config.py` | 编排模式：react / hybrid 预取 / local_scheduler | agents 域（编排子章） |
 | `agent_resource_validation.py` | 创建/改 agent 时校验 tool/skill 标识符合法 | agents 域 |
 | `agent_tags.py` | 扁平可组合标签系统（替代 team 分组） | agents 域 |

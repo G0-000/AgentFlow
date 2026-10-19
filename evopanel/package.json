@@ -1,0 +1,22 @@
+{
+  "name": "evopanel",
+  "version": "0.1.0",
+  "private": true,
+  "description": "AgentFlow 控制面板（M8 学习版：浏览器 Web，不接 Tauri 壳）——对标 EvoFlow/evopanel",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.0",
+    "vitest": "^3.0.0"
+  }
+}

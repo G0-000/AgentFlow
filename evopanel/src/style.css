@@ -1,0 +1,142 @@
+/* ============================================================================
+   AgentFlow · evopanel/src/style.css —— 全局样式（学习版）
+   ============================================================================
+   里程碑: M8（前端界面）
+   风格: 中性色 + 蓝色强调（不引入 tailwind；学习版手写最小 CSS 变量）
+   ============================================================================ */
+
+:root {
+  --bg: #f6f7f9;
+  --bg-panel: #ffffff;
+  --border: #e2e4e8;
+  --text: #1f2328;
+  --text-secondary: #6b7280;
+  --accent: #2563eb;
+  --accent-hover: #1d4ed8;
+  --danger: #dc2626;
+  --ok: #16a34a;
+  --radius: 8px;
+  --font-sm: 13px;
+  --font-md: 14px;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: -apple-system, BlinkMacSystemFont, 'PingFang SC', 'Microsoft YaHei', sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  font-size: var(--font-md);
+}
+
+/* ---- 布局 ---- */
+#app { display: flex; flex-direction: column; height: 100vh; }
+
+.app-header {
+  display: flex; align-items: center; gap: 16px;
+  padding: 0 20px; height: 52px;
+  background: var(--bg-panel); border-bottom: 1px solid var(--border);
+}
+.app-header .brand { font-weight: 600; font-size: 15px; }
+.app-header .tabs { display: flex; gap: 4px; margin-left: 24px; }
+.app-header .tabs button {
+  border: none; background: transparent; padding: 8px 14px;
+  border-radius: var(--radius); cursor: pointer; font-size: var(--font-md);
+  color: var(--text-secondary);
+}
+.app-header .tabs button.active { background: #eef2ff; color: var(--accent); font-weight: 500; }
+.app-header .spacer { flex: 1; }
+.app-header .logout {
+  border: 1px solid var(--border); background: var(--bg-panel);
+  padding: 6px 12px; border-radius: var(--radius); cursor: pointer; font-size: var(--font-sm);
+}
+
+.app-main { flex: 1; overflow: auto; padding: 20px; }
+
+/* ---- 通用控件 ---- */
+.btn {
+  border: 1px solid var(--border); background: var(--bg-panel);
+  padding: 7px 14px; border-radius: var(--radius); cursor: pointer; font-size: var(--font-md);
+}
+.btn:hover { border-color: var(--accent); color: var(--accent); }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-hover); color: #fff; }
+.btn-danger { color: var(--danger); border-color: var(--danger); }
+.btn-danger:hover { background: #fef2f2; }
+
+input[type='text'], input[type='password'], input[type='number'], select {
+  width: 100%; padding: 8px 10px; border: 1px solid var(--border);
+  border-radius: var(--radius); font-size: var(--font-md); background: var(--bg-panel);
+}
+input:focus, select:focus { outline: 2px solid #bfdbfe; border-color: var(--accent); }
+
+/* ---- 模态 ---- */
+.modal-overlay {
+  position: fixed; inset: 0; background: rgba(15, 23, 42, 0.45);
+  display: flex; align-items: center; justify-content: center; z-index: 100;
+}
+.modal-open { overflow: hidden; }
+.modal {
+  background: var(--bg-panel); border-radius: 12px; padding: 20px;
+  width: min(520px, 90vw); box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
+}
+.modal-title { font-weight: 600; margin-bottom: 12px; }
+.modal-body { color: var(--text-secondary); line-height: 1.6; margin-bottom: 16px; }
+.modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+
+/* ---- 聊天页 ---- */
+.chat-layout { display: flex; gap: 20px; height: 100%; }
+.chat-sidebar {
+  width: 240px; flex-shrink: 0; background: var(--bg-panel);
+  border: 1px solid var(--border); border-radius: var(--radius);
+  display: flex; flex-direction: column; overflow: hidden;
+}
+.chat-sidebar .new-thread { padding: 12px; border-bottom: 1px solid var(--border); }
+.chat-sidebar .thread-list { flex: 1; overflow: auto; }
+.chat-sidebar .thread-item {
+  padding: 10px 12px; cursor: pointer; border-bottom: 1px solid #f0f1f3;
+  display: flex; align-items: center; justify-content: space-between; gap: 6px;
+}
+.chat-sidebar .thread-item:hover { background: #f6f7f9; }
+.chat-sidebar .thread-item.active { background: #eef2ff; }
+.chat-sidebar .thread-item .title {
+  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: var(--font-sm);
+}
+.chat-sidebar .thread-item .del { color: var(--text-secondary); cursor: pointer; border: none; background: none; }
+
+.chat-main {
+  flex: 1; display: flex; flex-direction: column; gap: 12px;
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; overflow: hidden;
+}
+.chat-messages { flex: 1; overflow: auto; display: flex; flex-direction: column; gap: 10px; }
+.msg { max-width: 85%; padding: 10px 14px; border-radius: 10px; line-height: 1.6; white-space: pre-wrap; word-break: break-word; }
+.msg.user { align-self: flex-end; background: var(--accent); color: #fff; }
+.msg.assistant { align-self: flex-start; background: #f3f4f6; }
+.msg.error { align-self: flex-start; background: #fef2f2; color: var(--danger); }
+.msg.system { align-self: center; font-size: var(--font-sm); color: var(--text-secondary); }
+.chat-input-row { display: flex; gap: 8px; }
+.chat-input-row input { flex: 1; }
+.chat-input-row .btn { white-space: nowrap; }
+.typing { align-self: flex-start; color: var(--text-secondary); font-size: var(--font-sm); }
+
+/* ---- 模型设置页 ---- */
+.models-page { max-width: 900px; margin: 0 auto; }
+.models-page .toolbar { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+.models-table { width: 100%; border-collapse: collapse; background: var(--bg-panel); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.models-table th, .models-table td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #f0f1f3; font-size: var(--font-md); }
+.models-table th { background: #fafafa; font-weight: 500; color: var(--text-secondary); }
+.models-table .badge { font-size: 11px; padding: 2px 8px; border-radius: 10px; background: #eef2ff; color: var(--accent); }
+.models-table .badge.primary { background: #dcfce7; color: var(--ok); }
+
+/* ---- 登录页 ---- */
+.login-wrap { display: flex; align-items: center; justify-content: center; height: 100vh; }
+.login-card {
+  background: var(--bg-panel); border: 1px solid var(--border); border-radius: 12px;
+  padding: 32px; width: min(360px, 90vw);
+}
+.login-card h1 { font-size: 18px; margin: 0 0 20px; }
+.login-card .field { margin-bottom: 14px; }
+.login-card .field label { display: block; font-size: var(--font-sm); color: var(--text-secondary); margin-bottom: 4px; }
+.login-card .error { color: var(--danger); font-size: var(--font-sm); margin-bottom: 10px; min-height: 18px; }

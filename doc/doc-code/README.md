@@ -174,9 +174,9 @@ backend/packages/harness/agentflow/          ← 核心层（import 叫 agentflo
 - [cron.py](scheduler/cron.md) · [loop.py](scheduler/loop.md) · [__init__.py](scheduler/__init__.md)
 - 语义对齐：[scheduler/语义对齐说明.md](scheduler/语义对齐说明.md)（原版「工具执行引擎」 vs AgentFlow「定时触发器」，差异 #3）
 
-### automation/（文档目录 · M8+ 对齐用）
+### automation/（文档目录 · M8.1 对齐用）
 - 语义对齐：[automation/语义对齐说明.md](automation/语义对齐说明.md)（原版「无人值守自动化流程」 vs AgentFlow M5「定时任务」，差异 #2/#3）
-- 注：当前 `agentflow/` 下尚无 `automation/` 包，本目录为对齐审计结论性文档，后续 M8+ 移植 `output_paths.py` / `automation_runtime.py` 时在此补文件级说明
+- 注：当前 `agentflow/` 下尚无 `automation/` 包，本目录为对齐审计结论性文档，后续 M8.1 移植 `output_paths.py` / `automation_runtime.py` 时在此补文件级说明
 
 ### collab/（2）
 - [execution_lifecycle.py](collab/execution_lifecycle.md) · [__init__.py](collab/__init__.md)
