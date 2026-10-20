@@ -88,9 +88,10 @@ describe('streamSSE', () => {
     clearToken()
   })
 
-  /** 构造后端 SSE 响应（event: x\ndata: {...}\n\n 帧）。 */
-  function sseResponse(frames) {
-    const text = frames.map((f) => `event: ${f.event}\ndata: ${JSON.stringify(f.data)}\n\n`).join('')
+  /** 构造后端 SSE 响应。frameSep 默认 \r\n\r\n（sse-starlette 生产真实格式）；
+   *  \n\n 是标准 SSE 分隔，用于兼容性用例。 */
+  function sseResponse(frames, frameSep = '\r\n\r\n') {
+    const text = frames.map((f) => `event: ${f.event}\ndata: ${JSON.stringify(f.data)}${frameSep}`).join('')
     const stream = new ReadableStream({
       start(controller) {
         controller.enqueue(new TextEncoder().encode(text))
@@ -122,6 +123,19 @@ describe('streamSSE', () => {
     expect(created[0].thread_id).toBe('t1')
     expect(deltas).toEqual(['你', '好'])
     expect(done).toEqual(['你好'])
+  })
+
+  it('标准 \n\n 帧分隔兼容（非 sse-starlette 实现）', async () => {
+    fetch
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ run_id: 'r4', thread_id: 't4' }) })
+      .mockResolvedValueOnce(
+        sseResponse([{ event: 'delta', data: { delta: 'hi' } }, { event: 'done', data: { status: 'success', response: 'hi' } }], '\n\n'),
+      )
+    const deltas = []
+    const done = []
+    await streamSSE({ message: 'x', onDelta: (d) => deltas.push(d), onDone: (f) => done.push(f) })
+    expect(deltas).toEqual(['hi'])
+    expect(done).toEqual(['hi'])
   })
 
   it('error 事件触发 onError', async () => {

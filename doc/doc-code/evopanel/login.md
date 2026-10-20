@@ -11,6 +11,7 @@
 - [💡 设计思想](#💡-设计思想)
 - [🎯 实用场景](#🎯-实用场景)
 - [🧩 顺序执行链](#🧩-顺序执行链)
+- [🧩 代码解析](#🧩-代码解析)
 - [❓ Q&A](#❓-qa)
 - [⚠️ 风险点](#⚠️-风险点)
 
@@ -52,6 +53,44 @@ Enter 键也触发 doLogin
   └─ finally：按钮恢复可用（成功时页面已跳转）
 ```
 
+## 🧩 代码解析
+
+```js
+import { authApi, setToken } from '../lib/api-client.js'   // 数据面统一走 API 封装
+
+export function renderLogin(container) {
+  container.innerHTML = `…登录卡片…`          // ① 画卡片：用户名/密码/错误区/登录按钮
+  const username = container.querySelector('#login-username')
+  const password = container.querySelector('#login-password')
+  const errorEl = container.querySelector('#login-error')
+  const btn = container.querySelector('#login-btn')
+
+  const doLogin = async () => {
+    errorEl.textContent = ''                  // ② 清旧错误 + 禁按钮（防连点）
+    btn.disabled = true
+    try {
+      const res = await authApi.login(username.value.trim(), password.value)
+      setToken(res.token)                     // ③ token 落 localStorage
+      window.location.reload()                // ④ 重载 → main.js gate 重走 → 主界面
+    } catch (err) {
+      errorEl.textContent = err.message || '登录失败'   // 后端 detail（401/503）
+      btn.disabled = false                    // 失败恢复按钮，可重试
+    }
+  }
+  btn.addEventListener('click', doLogin)
+  password.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin() })
+  username.focus()
+}
+```
+
+**逐块拆解**：
+
+- **`import { authApi, setToken }`** — 全部网络调用收敛在 api-client.js（`request()` 统一 JSON/token/错误归一）；login.js 只做"收集输入 + 处理结果"。
+- **`renderLogin(container)`** — 约定式渲染：main.js 传入 `#app` 容器，页面把自己画进去。卡片用 innerHTML 字符串（纯静态模板，无用户数据注入面）。
+- **`doLogin`** — 唯一的业务动作：调 `POST /api/auth/login` → 成功 `setToken` + `reload`；失败把后端 detail（`用户名或密码错误` / `后端未配置登录`）显示到错误区。
+- **`btn.disabled = true`** — 请求期间禁用按钮防连点；成功时页面即将 reload 无需恢复，失败才恢复（Q&A 有专问）。
+- **Enter 提交** — `password` 输入框 `keydown` 监听，回车等价点击——表单直觉操作。
+
 ## ❓ Q&A / 知识点
 
 **Q: 为什么失败时按钮要恢复，成功时不恢复？**
@@ -66,4 +105,4 @@ A: 后端 detail 已是面向用户的文案（"用户名或密码错误"、"后
 2. localStorage 存储 token——生产 XSS 面（M8.1 可换 HttpOnly cookie）
 3. 密码输入无前端校验（空密码也提交，后端 401 兜底）
 
-> 页脚：2026-10-17 · M8 登录页 · 对标 `EvoFlow/evopanel/src/pages/login.js`（学习版裁剪）
+> 页脚：2026-10-20 · M8 登录页 · 对标 `EvoFlow/evopanel/src/pages/login.js`（学习版裁剪；10-20 补 🧩 代码解析）

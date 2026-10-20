@@ -11,6 +11,7 @@
 - [💡 设计思想](#💡-设计思想)
 - [🎯 实用场景](#🎯-实用场景)
 - [🧩 顺序执行链](#🧩-顺序执行链)
+- [🧩 代码解析](#🧩-代码解析)
 - [❓ Q&A](#❓-qa)
 - [⚠️ 风险点](#⚠️-风险点)
 
@@ -22,7 +23,7 @@ renderChat(container) → 左栏会话列表 + 右栏消息区 + 输入行
 refreshThreads()   GET /api/threads → 列表渲染（active 高亮 + 删除按钮）
 switchThread(id)   切换会话：清空消息区 + 提示"历史恢复为 M8.1"
 send()             streamSSE({message, threadId, onCreated/onDelta/onDone/onError})
-new-thread         清空 currentThreadId + 消息区（后端自动生成新 thread）
+new-thread         清空 currentThreadId + 消息区 + 系统提示"发送首条消息将创建新会话"
 ```
 
 ## 📤 关键导出
@@ -56,6 +57,65 @@ new-thread         清空 currentThreadId + 消息区（后端自动生成新 th
   └─ finally: 移除"思考中…"、恢复 isStreaming/按钮、焦点回输入框
 ```
 
+## 🧩 代码解析
+
+```js
+import { threadsApi, streamSSE } from '../lib/api-client.js'
+
+export function renderChat(container) {
+  container.innerHTML = `…左栏(新建+会话列表) + 右栏(消息区+输入行)…`
+  let currentThreadId = null
+  let isStreaming = false                       // 防重入标志
+
+  async function refreshThreads() {             // ① 会话列表：GET /api/threads
+    const res = await threadsApi.list()
+    for (const t of (res?.threads) || []) {
+      // 渲染 thread-item：标题 + 删除按钮；点击切换，删除调 threadsApi.remove
+    }
+  }
+  function switchThread(threadId) {
+    currentThreadId = threadId
+    msgsEl.innerHTML = ''
+    msgsEl.appendChild(systemMsg('已切换到会话 …（历史恢复为 M8.1 增强项）'))
+    refreshThreads()
+  }
+  async function send() {
+    const text = inputEl.value.trim()
+    if (!text || isStreaming) return
+    appendMsg('user', text)
+    const assistantEl = appendMsg('assistant', '…')
+    isStreaming = true; sendBtn.disabled = true
+    try {
+      let streamed = ''
+      await streamSSE({
+        message: text,
+        threadId: currentThreadId,
+        onCreated: (run) => {                   // ② 新会话回填 thread_id
+          if (!currentThreadId && run?.thread_id) { currentThreadId = run.thread_id; refreshThreads() }
+        },
+        onDelta: (chunk) => { streamed += chunk; assistantEl.textContent = streamed },  // ③ 打字机
+        onDone: (full) => { assistantEl.textContent = full || streamed || '（空回复）'; refreshThreads() },
+        onError: (msg) => { assistantEl.className = 'msg error'; assistantEl.textContent = `错误：${msg}` },
+      })
+    } finally {                                 // ④ 收尾：移除"思考中"、恢复状态
+      typing.remove(); isStreaming = false; sendBtn.disabled = false; inputEl.focus()
+    }
+  }
+  sendBtn.addEventListener('click', send)
+  inputEl.addEventListener('keydown', (e) => { if (e.key === 'Enter') send() })
+  refreshThreads()
+  return () => {}                               // cleanup 占位（main.js 约定）
+}
+```
+
+**逐块拆解**：
+
+- **`refreshThreads()`** — 会话列表渲染：`threadsApi.list()` → 每个会话一个 `thread-item`（active 高亮 + 删除按钮）。**删除当前会话**时 `currentThreadId=null` + 清空消息区（避免发到已删 thread）。
+- **`send()`** — 聊天核心：校验 → 上屏用户消息 → 挂"思考中…" → `streamSSE` 消费流。**`onCreated`** 解决"新会话 id 从哪来"：首次发消息（无 currentThreadId）时后端 POST /runs 响应带 thread_id → 立即回填 + 刷列表。
+- **`onDelta`/`onDone`** — 流式打字机：onDelta 累积文本更新 assistant 气泡；onDone 用全文兜底（`full || streamed`）。**`onError`** 把气泡变 error 样式。
+- **`isStreaming` + finally** — 防重入：流期间禁用发送按钮，`finally` 无论成败都恢复状态、移除"思考中"、焦点回输入框。
+- **`return () => {}`** — 按 main.js"页面返回 cleanup"约定占位（本页全用局部变量 + 每次 render 重建 DOM，无需显式卸载）。
+
 ## ❓ Q&A / 知识点
 
 **Q: 切换会话为什么不恢复历史消息？**
@@ -74,4 +134,4 @@ A: 模型输出不可信，textContent 天然防 XSS；会话标题等用户数�
 3. 会话列表删除无确认框——学习版最小化；models 页有 showConfirm 可复用
 4. escapeHtml 在文件底部定义（函数声明提升）——勿改成 const 箭头函数，否则提升失效
 
-> 页脚：2026-10-17 · M8 聊天页 · 对标 `EvoFlow/evopanel/src/pages/chat-react.js`（原版薄壳挂 ChatApp.tsx，学习版单文件）
+> 页脚：2026-10-20 · M8 聊天页 · 对标 `EvoFlow/evopanel/src/pages/chat-react.js`（原版薄壳挂 ChatApp.tsx，学习版单文件；10-20 补 🧩 代码解析）

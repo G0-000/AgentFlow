@@ -2,7 +2,7 @@
 
 > **文件路径**: `backend/app/gateway/app.py`
 > **目录位置**: app → gateway → app.py
-> **职责**: FastAPI 应用装配（create_app 工厂 + lifespan 初始化 + 挂 3 个 router）
+> **职责**: FastAPI 应用装配（create_app 工厂 + lifespan 初始化 + 挂 4 个 router：models/runs/threads + auth（M8 追加））
 
 >agent lifespan  智能体的生命周期
 
@@ -30,7 +30,8 @@
 │     ② ModelStore.ensure_table()   ← gateway_models 幂等建表 │
 │     ③ config.models → seed_primary() ← yaml→SQLite 迁移(幂等) │
 │   app.state: db_path/model_store/sessions/runs/runner        │
-│   mount: models.runs.threads.router（前缀 /api）+ GET /health │
+│   mount: models.runs.threads.auth.router（前缀 /api）+ /health│
+│   （auth 为 M8 追加；M7 时 3 个）                            │
 │                                                              │
 │ create_default_app() → 加载 .env + config.yaml 后 create_app │
 └──────────────────────────────────────────────────────────────┘
@@ -48,7 +49,7 @@ flowchart TD
     E --> F{"config.models 存在?"}
     F -->|"是"| G["③ seed_primary：表空才写主模型"]
     F -->|"否"| H["跳过迁移"]
-    G --> I["挂载 3 router + /health"]
+    G --> I["挂载 4 router（含 auth）+ /health"]
     H --> I
 ```
 
@@ -98,7 +99,7 @@ uvicorn --factory app.gateway.app:create_default_app
    ▼  register_runtime_adapters()                           ← ① R1 端口装配（幂等）
    ▼  FastAPI(lifespan=lifespan, docs_url=/docs)
    ▼  app.state 装配: model_store/sessions/runs/runner      ← ② 依赖注入落点
-   ▼  include_router × 3（models/runs/threads）             ← ③ 挂 API
+   ▼  include_router × 4（models/runs/threads/auth）           ← ③ 挂 API（auth 为 M8 追加）
    ▼  lifespan 触发:
    ▼  init_db → ensure_table → seed_primary                 ← ④ 三初始化（幂等）
    ▼  GET /health → {"status":"ok"}                         ← 服务就绪
@@ -129,7 +130,7 @@ SSE 子链（GET /stream，请求后异步消费）
 | `load_config` → AppConfig | 全局配置唯一入口 | 类型化对象，config.yaml 只在这读一次 |
 | `register_runtime_adapters()` ① | R1 端口装配 | 幂等；必须在挂路由**前**——路由处理时核心域可能就要用端口 |
 | `app.state` 装配 ② | **依赖注入落点** | 全链枢纽：`model_store/sessions/runs/runner` 全挂 state——路由层不自己 new 依赖，只从 state 取 |
-| `include_router × 3` ③ | 挂 API | 在 state 装配之后——路由处理函数要能取到 state |
+| `include_router × 4` ③ | 挂 API | 在 state 装配之后——路由处理函数要能取到 state（models/runs/threads + auth（M8 追加）） |
 | lifespan 三初始化 ④ | `init_db → ensure_table → seed_primary` | 全幂等：建库建表 + 种子主模型（yaml→SQLite 迁移） |
 | `GET /health` | 就绪信号 | 装配完成后才"可服务" |
 
@@ -170,7 +171,7 @@ create_app(db_path=tmp, runner=fake_runner, config=None)
 - `config=None` → 跳过 yaml→SQLite 迁移（测试用空库起步）
 - 端口装配 `register_runtime_adapters` 幂等 → 反复 create_app 只装一次
 
-**顺序执行链的本质**：一条装配链把可替换的零件（DB/模型/runner/端口）全部装进 `app.state`，请求链和 SSE 子链只负责"从 state 取零件干活"——**测试 = 换装配层的零件，业务代码不动**。这也是后端 164 个测试全离线跑、不碰真实模型的原理。
+**顺序执行链的本质**：一条装配链把可替换的零件（DB/模型/runner/端口）全部装进 `app.state`，请求链和 SSE 子链只负责"从 state 取零件干活"——**测试 = 换装配层的零件，业务代码不动**。这也是后端 172 个测试全离线跑、不碰真实模型的原理（2026-10-18 实测）。
 
 ## 🧩 代码解析（成块对照 app.py）
 
@@ -185,6 +186,7 @@ from agentflow.persistence.session_repositories import SessionRepository
 from fastapi import FastAPI
 
 from app.gateway.model_store import ModelStore
+from app.gateway.routers import auth as auth_router  # M8 追加：POST /api/auth/login
 from app.gateway.routers import models as models_router
 from app.gateway.routers import runs as runs_router
 from app.gateway.routers import threads as threads_router
@@ -307,6 +309,7 @@ def create_app(db_path=None, runner=None, config=None) -> FastAPI:
     app.include_router(models_router.router)
     app.include_router(runs_router.router)
     app.include_router(threads_router.router)
+    app.include_router(auth_router.router)  # M8 追加：/api/auth/login（JWT）
 
     @app.get("/health")
     async def health() -> dict:
@@ -318,7 +321,7 @@ def create_app(db_path=None, runner=None, config=None) -> FastAPI:
 **关键点**：
 
 - **端口装配放工厂开头而非 lifespan**：测试用 `TestClient` 有时不触发 lifespan（或触发时机不可控）；端口注册要"无论是否启动 lifespan 都执行一次"——这是 R1 机制可靠性的关键决策。
-- **`app.state` 是依赖注入落点**：3 个 router 通过 `request.app.state.xxx` 取 `model_store`/`sessions`/`runner`——路由层不直接 new 对象，可测试性来自这里。
+- **`app.state` 是依赖注入落点**：4 个 router 通过 `request.app.state.xxx` 取 `model_store`/`sessions`/`runner`——路由层不直接 new 对象，可测试性来自这里。
 - **`app.state.runs = {}` 是内存注册表**：run 是"临时执行句柄"（状态/回复存内存），业务记录（会话+消息）落 SQLite，图状态落 checkpointer——进程重启 run_id 失效可接受（M7 单进程）。
 - **三个 router 各自 `prefix="/api"`**：挂载时不再加前缀，避免 `/api/api/...`。
 
@@ -376,4 +379,4 @@ M7 的对话链路只支持一个"主对话模型"（`get_primary()` 单行语�
 4. 默认 runner 是缓冲式（invoke 完才出块）；真流式后续在 `_build_default_runner` 增强，接口 `AsyncIterator[str]` 已为流式预留
 5. 同步 `agent.invoke` 必须走线程池（`anyio.to_thread`），直接放 async 函数会阻塞事件循环
 
-> 页脚：2026-10-13 · M7 Gateway 核心 · 对齐 `evoflow/gateway/app.py`（裁剪）。2026-10-18 补「🔬 流程剖析」（三链层次关系 + 装配/请求/SSE 子链逐步剖析 + 测试换零件视角）+ 块 2 补 `yield` 详解（异步生成器语义 + 缓冲式单块）。
+> 页脚：2026-10-13 · M7 Gateway 核心 · 对齐 `evoflow/gateway/app.py`（裁剪）。2026-10-18 补「🔬 流程剖析」（三链层次关系 + 装配/请求/SSE 子链逐步剖析 + 测试换零件视角）+ 块 2 补 `yield` 详解（异步生成器语义 + 缓冲式单块）。2026-10-19 对齐实际代码：router 数 3 → 4（补 auth，M8 追加）、imports/代码块补 auth、测试数 164 → 172。

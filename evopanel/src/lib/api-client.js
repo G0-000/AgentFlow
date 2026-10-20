@@ -107,6 +107,9 @@ export async function streamSSE({ message, threadId = null, onDelta, onDone, onE
       const { done, value } = await reader.read()
       if (done) break
       buffer += decoder.decode(value, { stream: true })
+      // 兼容帧分隔：sse-starlette 生产输出 \r\n\r\n（行内 \n），标准 SSE 用 \n\n——
+      // 统一把 CRLF 归一成 LF，否则 indexOf('\n\n') 永远切不开生产帧
+      buffer = buffer.replace(/\r\n/g, '\n')
       // SSE 帧以空行分隔；逐帧解析
       let sep
       while ((sep = buffer.indexOf('\n\n')) !== -1) {

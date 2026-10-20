@@ -55,6 +55,34 @@ request: POST /api/threads {thread_id?, title?}
 
 ## 🧩 代码解析（成块对照 threads.py）
 
+### 块 0：头部装配 —— router / ThreadCreate / _row_to_dict
+
+```python
+from fastapi import APIRouter, Request
+from pydantic import BaseModel, Field
+
+router = APIRouter(prefix="/api", tags=["threads"])   # 挂在 /api，端点 /api/threads/*
+
+class ThreadCreate(BaseModel):
+    """创建会话请求体（都可选）。"""
+    thread_id: str | None = Field(default=None, description="指定会话 id；缺省自动生成")
+    title: str = Field(default="", description="会话标题")
+
+def _row_to_dict(row: sqlite3.Row) -> dict:
+    return {
+        "thread_id": row["id"],
+        "title": row["title"],
+        "created_at": row["created_at"],
+        "updated_at": row["updated_at"],
+    }
+```
+
+**关键点**：
+
+- **`ThreadCreate`** — 请求体模型：`thread_id`/`title` **都可选**（会话可空创建）——与 runs 的 `RunCreate`（message 必填）相反：会话本身没有必填业务字段。
+- **`_row_to_dict`** — SQLite row → JSON dict 的唯一映射点：只暴露前端需要的 4 字段（thread_id/title/created_at/updated_at），不泄露内部列。三个端点共用它（创建/列表）。
+- **`sqlite3.Row` 按下标/列名双通道访问**：`row["id"]` 是列名索引（Row 支持），`id` 列在 sessions 表里就是 thread_id 的物理名——映射层把物理名翻译成 API 名。
+
 ### 块 1：`create_thread` —— 会话即 LangGraph thread_id
 
 ```python
@@ -113,4 +141,4 @@ A: 同一把钥匙三种用途：① `sessions` 表（业务会话记录 + 明�
 2. POST 不传 thread_id 时自动生成（os.urandom 16 hex），无法由客户端预知——前端若需稳定 id 必须显式传
 3. 列表查询直接走 `sessions.conn`（绕过 repo 封装）——若未来 sessions 换存储（非 SQLite），此处要同步改
 
-> 页脚：2026-10-13 · M7 Gateway 核心 · 对齐 `evoflow/gateway/routers/threads.py`（裁剪）
+> 页脚：2026-10-20 · M7 Gateway 核心 · 对齐 `evoflow/gateway/routers/threads.py`（裁剪；10-20 补块 0 头部装配：ThreadCreate/_row_to_dict）

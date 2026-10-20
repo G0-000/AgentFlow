@@ -11,6 +11,7 @@
 - [💡 设计思想](#💡-设计思想)
 - [🎯 实用场景](#🎯-实用场景)
 - [🧩 顺序执行链](#🧩-顺序执行链)
+- [🧩 代码解析](#🧩-代码解析)
 - [❓ Q&A](#❓-qa)
 - [⚠️ 风险点](#⚠️-风险点)
 
@@ -53,6 +54,61 @@ renderModels(container) → refresh()
          └─ 删除   → showConfirm → modelsApi.remove(name) → refresh()
 ```
 
+## 🧩 代码解析
+
+```js
+import { modelsApi } from '../lib/api-client.js'
+import { showConfirm, showModal } from '../components/modal.js'
+
+export function renderModels(container) {
+  container.innerHTML = `…工具栏(+新增) + 表格…`
+  const tbody = container.querySelector('#models-tbody')
+
+  async function refresh() {                    // ① 列表：GET /api/models
+    const res = await modelsApi.list()
+    tbody.innerHTML = ''
+    for (const m of (res?.models) || []) {
+      const tr = document.createElement('tr')
+      tr.innerHTML = `…名称/服务商/模型/base_url/temp/状态(主模型badge)/操作…`
+      tr.querySelector('[data-op="set-primary"]').addEventListener('click', async () => {
+        await modelsApi.update(m.name, { is_primary: true }); refresh()   // ② 设默认
+      })
+      tr.querySelector('[data-op="edit"]').addEventListener('click', () => openForm(m))
+      tr.querySelector('[data-op="del"]').addEventListener('click', async () => {
+        const ok = await showConfirm(`删除模型「${m.name}」？不可恢复。`)   // ③ 删除确认
+        if (!ok) return
+        await modelsApi.remove(m.name); refresh()
+      })
+      tbody.appendChild(tr)
+    }
+  }
+
+  function openForm(existing = null) {          // ④ 新增/编辑共用表单（showModal）
+    const isEdit = !!existing
+    const html = `…字段输入（编辑时 name disabled、api_key 打码）…`
+    showModal({
+      title: isEdit ? `编辑模型「${existing.name}」` : '新增模型',
+      html,
+      actions: [{ label: isEdit ? '保存' : '创建', primary: true, handler: async () => {
+        const body = { provider, model, base_url, api_key, temperature, is_primary }
+        if (isEdit) delete body.api_key          // PATCH 语义：留空则后端不改
+        await (isEdit ? modelsApi.update(existing.name, body) : modelsApi.create(body))
+        refresh()
+      } }],
+    })
+  }
+  container.querySelector('#add-model').addEventListener('click', () => openForm())
+  refresh()
+}
+```
+
+**逐块拆解**：
+
+- **`refresh()`** — 列表渲染：每行绑定三个操作。**`set-primary`** 行内按钮 = `PATCH {is_primary:true}` → 后端事务翻转唯一主模型；**`edit`** 打开共用表单；**`del`** 先 `showConfirm` 再 `remove`。
+- **`openForm(existing)`** — 新增/编辑一表单两用：`isEdit` 时 name 输入框 `disabled`（唯一标识不可改）、api_key 打码显示。**PATCH 语义关键**：编辑保存时 `delete body.api_key`——留空 = 不传该字段 = 后端不改 key（models.py 白名单收 None 才会更新）。
+- **`handler` 保存逻辑** — 收集表单值 → 编辑走 `update(name, body)`（PATCH）、新增走 `create(body)`（POST）；成功 `refresh()`；失败 `alert + throw` 保持弹窗打开（modal.js 的 keepOpen 语义）。
+- **`escapeHtml`/`escapeAttr`** — 表格单元格与表单 value 都转义；模型名等用户数据不直接进 innerHTML（防 XSS）。
+
 ## ❓ Q&A / 知识点
 
 **Q: 编辑时为什么 api_key 输入框显示的是打码值？**
@@ -71,4 +127,4 @@ A: 学习版最小：绝大多数本地/云模型走 OpenAI 兼容接口；原�
 3. 温度字段 `Number(input.value || 0.3)`——空输入兜底 0.3，非数字输入得 NaN（后端校验温度范围兜底）
 4. 删除无二次确认的"输入名字"强化（学习版仅 showConfirm）
 
-> 页脚：2026-10-17 · M8 模型设置页 · 对标 `EvoFlow/evopanel/src/pages/models.js`（学习版裁剪）
+> 页脚：2026-10-20 · M8 模型设置页 · 对标 `EvoFlow/evopanel/src/pages/models.js`（学习版裁剪；10-20 补 🧩 代码解析）

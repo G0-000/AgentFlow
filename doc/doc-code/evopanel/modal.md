@@ -11,6 +11,7 @@
 - [💡 设计思想](#💡-设计思想)
 - [🎯 实用场景](#🎯-实用场景)
 - [🧩 顺序执行链](#🧩-顺序执行链)
+- [🧩 代码解析](#🧩-代码解析)
 - [❓ Q&A](#❓-qa)
 - [⚠️ 风险点](#⚠️-风险点)
 
@@ -50,6 +51,69 @@ showConfirm(message)
   （close 时移除 keydown 监听，防泄漏）
 ```
 
+## 🧩 代码解析
+
+```js
+function escapeHtml(str) {                     // HTML 转义：防注入破坏结构
+  return String(str ?? '').replace(/&/g, '&amp;').replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;').replace(/>/g, '&gt;')
+}
+
+export function showConfirm(message) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div')
+    overlay.className = 'modal-overlay'
+    overlay.innerHTML = `…modal（取消/确认 + ${escapeHtml(message)}）…`
+    document.body.appendChild(overlay)
+    document.body.classList.add('modal-open')
+
+    let settled = false                        // 保证只 resolve 一次
+    const done = (v) => {
+      if (settled) return
+      settled = true
+      overlay.remove()
+      document.body.classList.remove('modal-open')
+      resolve(v)
+    }
+    overlay.addEventListener('click', (e) => {
+      if (e.target === overlay) return done(false)      // 点遮罩 = 取消
+      const act = e.target.closest('[data-act]')?.dataset.act
+      if (act === 'ok') done(true)
+      else if (act === 'cancel') done(false)
+    })
+    const onKey = (e) => { if (e.key === 'Escape') { window.removeEventListener('keydown', onKey); done(false) } }
+    window.addEventListener('keydown', onKey)           // Esc = 取消
+  })
+}
+
+export function showModal({ title, html = '', actions = [] }) {
+  return new Promise((resolve) => {
+    const overlay = document.createElement('div')
+    overlay.className = 'modal-overlay'
+    overlay.innerHTML = `…标题 + ${html} + ${actions.map(…按钮)} + 关闭…`
+    overlay.addEventListener('click', async (e) => {
+      if (e.target === overlay) return _close()
+      const btn = e.target.closest('button[data-i]')
+      if (!btn) return
+      if (btn.dataset.i === '__close') return _close()
+      const act = actions[Number(btn.dataset.i)]
+      if (act?.handler) await act.handler(overlay)     // handler 抛错 → 不关闭
+      if (!act?.keepOpen) _close()                     // keepOpen 保持打开
+    })
+    const _close = () => { window.removeEventListener('keydown', onKey); _removeOverlay(overlay); resolve() }
+    const onKey = (e) => { if (e.key === 'Escape') _close() }
+    window.addEventListener('keydown', onKey)
+  })
+}
+```
+
+**逐块拆解**：
+
+- **`escapeHtml`** — 模块私有转义：message/标题/按钮 label 都是字符串拼接进 innerHTML 的入口，统一转义防注入。`escapeAttr`（models 页）是调用方侧的属性级转义，两套不要混用。
+- **`showConfirm(message)`** — 返回 `Promise<boolean>`：确认→`done(true)`；取消/点遮罩/Esc→`done(false)`。**`settled` 标志**是关键——点击与键盘事件可能竞争（如点确认瞬间按 Esc），保证 resolve 只执行一次、overlay 只移除一次。
+- **`showModal({title, html, actions})`** — 通用模态：`html` 正文由调用方传入（models 页的表单 HTML），actions 是 `{label, primary, handler, keepOpen}` 数组。**`await act.handler(overlay)` 抛错 → 后续 `_close()` 不执行** → 弹窗保持打开（表单校验失败重试的惯用实现）。
+- **`_close` / `onKey`** — 关闭时 `removeEventListener('keydown', onKey)` 防泄漏；Esc 与点遮罩统一走 `_close()`。
+
 ## ❓ Q&A / 知识点
 
 **Q: `showModal` 的 handler 里 `throw err` 为什么不关弹窗？**
@@ -64,4 +128,4 @@ A: title/message/按钮 label 都是代码内字符串（可信任），但内�
 2. `handler` 抛异常时 Promise 不 resolve、弹窗不关——若 handler 想"失败也关"需 `keepOpen:false` 显式处理（当前 models 页故意抛错保持打开）
 3. 无 `aria-*` 无障碍属性（学习版最小；原版 630 行含焦点管理）
 
-> 页脚：2026-10-17 · M8 通用弹窗 · 对标 `EvoFlow/evopanel/src/components/modal.js`（学习版裁剪）
+> 页脚：2026-10-20 · M8 通用弹窗 · 对标 `EvoFlow/evopanel/src/components/modal.js`（学习版裁剪；10-20 补 🧩 代码解析）

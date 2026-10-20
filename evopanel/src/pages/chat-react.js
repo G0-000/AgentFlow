@@ -159,6 +159,7 @@ export function renderChat(container) {
   container.querySelector('#new-thread').addEventListener('click', () => {
     currentThreadId = null
     msgsEl.innerHTML = ''
+    msgsEl.appendChild(systemMsg('新会话已就绪——发送第一条消息将创建新会话'))
     refreshThreads()
   })
 

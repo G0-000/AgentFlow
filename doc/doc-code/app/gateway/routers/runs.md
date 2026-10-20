@@ -84,6 +84,32 @@ request: GET /api/runs/{run_id}/stream
 
 ## 🧩 代码解析（成块对照 runs.py）
 
+### 块 0：头部装配 —— imports / router / RunCreate / _new_run_id
+
+```python
+from fastapi import APIRouter, HTTPException, Request
+from pydantic import BaseModel, Field
+from app.gateway.sse import (            # 复用 sse.py 的事件构造器
+    EventSourceResponse, delta_event, done_event, error_event,
+)
+
+router = APIRouter(prefix="/api", tags=["runs"])   # 挂在 /api，端点 /api/runs/*
+
+class RunCreate(BaseModel):
+    """发起 run 请求体。"""
+    message: str = Field(..., description="用户消息")
+    thread_id: str | None = Field(default=None, description="复用会话；缺省新建")
+
+def _new_run_id() -> str:
+    return "r_" + os.urandom(6).hex()
+```
+
+**关键点**：
+
+- **`RunCreate`** — 请求体模型：`message` 必填（`...`），`thread_id` 可选（缺省新建会话）。FastAPI 自动做校验（缺 message → 422），业务函数拿到的 body 一定合法。
+- **`_new_run_id()`** — run_id 生成：`"r_" + os.urandom(6).hex()`（12 位 hex，非时间戳）——与 thread_id（`os.urandom(8).hex()`，16 位）前缀不同：`r_` 是执行句柄，`t_` 语义上是 LangGraph checkpoint 钥匙（见块 1 说明）。
+- **SSE 事件构造器从 sse.py 复用**：`delta_event/done_event/error_event` + `EventSourceResponse`——runs.py 只编排执行，帧格式归 sse.py 单一职责（与 sse.md 配套读）。
+
 ### 块 1：`create_run` —— 发起即登记，不执行
 
 ```python
@@ -111,7 +137,24 @@ async def create_run(request: Request, body: RunCreate) -> dict:
 - **run_id 与 thread_id 是两回事**：run_id（`r_` 前缀）是一次执行的临时句柄；thread_id 是会话语义（LangGraph checkpoint 的钥匙）。前端用 run_id 订阅流，用 thread_id 组织会话列表。
 - 业务记录（会话+明文消息）落 SQLite，run 执行态落内存——**审计与执行分离**。
 
-### 块 2：`_stream_run` —— SSE 执行体（核心）
+### 块 2：`get_run` —— 状态查询
+
+```python
+@router.get("/runs/{run_id}")
+async def get_run(request: Request, run_id: str) -> dict:
+    run = request.app.state.runs.get(run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"run 不存在: {run_id}")
+    return run
+```
+
+**关键点**：
+
+- **查询即返回整份 run 记录**：`{"run_id", "thread_id", "message", "status", "response", "error", "created_at", "updated_at"}`——`status` 是轮询核心（pending/running/success/failed），`response` 在流式结束后与 SSE 的 done 事件内容一致（同一份 dict）。
+- **404 快速失败**：run_id 不存在直接 HTTP 404，而不是返回空态让前端猜。
+- **读的是内存注册表**：`app.state.runs` 进程内 dict——多副本/重启后失效（风险点 1）。
+
+### 块 3：`_stream_run` —— SSE 执行体（核心）
 
 ```python
 async def _stream_run(request: Request, run: dict) -> AsyncIterator[dict]:
@@ -141,7 +184,7 @@ async def _stream_run(request: Request, run: dict) -> AsyncIterator[dict]:
 - **`str(exc)[:300]` 截断**：错误信息写回 run 记录和 error 事件都截断到 300 字符——避免把敏感堆栈/超长异常文本推给前端。
 - **`except Exception`（BLE001）**：SSE 生成器里的异常不能让服务崩（客户端正挂着连接）；转成 error 事件 + 状态 failed，进程继续服务。
 
-### 块 3：`stream_run` —— SSE 端点接线
+### 块 4：`stream_run` —— SSE 端点接线
 
 ```python
 @router.get("/runs/{run_id}/stream")
@@ -159,6 +202,9 @@ async def stream_run(request: Request, run_id: str):
 - 注意 `_stream_run(request, run)` 传的是**同一个 run dict 引用**——状态回写就是改这个 dict，GET 端点读的也是它。
 
 ## ❓ Q&A / 知识点
+
+**Q: 外部拿数据都是走接口查询，agent 不直接返回？**
+A: 对——这是 runs 路由的设计本质：**外部只见接口，不见 agent**。agent 藏在 `app.state.runner`（create_app 装配注入，router 只从 state 拿），其产出从不直接返回调用方——`_stream_run` 把输出逐块捕获后转成 SSE 事件（实时通道）+ 回写 `runs[run_id]["response"]`（REST 查询通道）。外部取数据只有两条路：SSE 流（一次性实时）或 GET /api/runs/{id}（随时轮询），两条路读的是同一份注册表记录，数据一致。数据分两层：业务层（sessions SQLite，持久：会话/消息）与执行层（runs 内存 dict，临时：状态/回复）。
 
 **Q: run 注册表为什么放内存？**
 A: run 是执行态；其持久记录是 session_messages + checkpoint。M7 单进程够用，重启后 run_id 失效可接受。多副本/多进程场景需要换 Redis/DB（学习路线 M8.1 已标注）。
@@ -179,4 +225,4 @@ A: 异常文本可能含完整堆栈（含路径、密钥片段、模型原始�
 3. GET stream 重复订阅会重跑一次 runner（"订阅一次=执行一次"语义）
 4. 同步 agent.invoke 的阻塞由 `_build_default_runner` 里的 `anyio.to_thread` 隔离；若 runner 换成真流式（astream），`_stream_run` 接口无需变
 
-> 页脚：2026-10-13 · M7 Gateway 核心 · 对齐 `evoflow/gateway/routers/runs.py`（裁剪）
+> 页脚：2026-10-20 · M7 Gateway 核心 · 对齐 `evoflow/gateway/routers/runs.py`（裁剪；10-20 代码解析重构为块 0-4 全覆盖：RunCreate/_new_run_id/get_run 不再遗漏）

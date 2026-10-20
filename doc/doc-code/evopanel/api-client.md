@@ -11,6 +11,7 @@
 - [💡 设计思想](#💡-设计思想)
 - [🎯 实用场景](#🎯-实用场景)
 - [🧩 顺序执行链](#🧩-顺序执行链)
+- [🧩 代码解析](#🧩-代码解析)
 - [❓ Q&A](#❓-qa)
 - [⚠️ 风险点](#⚠️-风险点)
 
@@ -53,12 +54,77 @@ streamSSE({message, threadId})
   ▼ 步骤 2：fetch(apiUrl('/runs/{run_id}/stream'))
   ├─ 非 200 / 无 body → onError("流打开失败 HTTP x")
   └─ 200 → reader 循环 read()
-          ▼ 步骤 3：buffer += decode(...)，按 '\n\n' 切帧
+          ▼ 步骤 3：buffer += decode(...)，CRLF 归一（\r\n→\n）后按 '\n\n' 切帧
           ├─ line 'event: delta' → data: {delta} → onDelta
           ├─ line 'event: done'  → data: {response} → onDone
           └─ line 'event: error' → data: {error} → onError
   ▼ 步骤 4：流结束（done）或异常 → 返回 / onError
 ```
+
+## 🧩 代码解析
+
+```js
+const TOKEN_KEY = 'agentflow_token'
+
+export function apiUrl(path) {                // 路径归一：/api 前缀（Vite dev proxy 转发）
+  const p = path.startsWith('/') ? path : `/${path}`
+  if (import.meta && import.meta.env && import.meta.env.DEV) return `/api${p}`
+  return `/api${p}`                           // 生产同源
+}
+
+export async function request(path, { method = 'GET', body = null } = {}) {
+  const headers = { 'Content-Type': 'application/json' }
+  const token = getToken()
+  if (token) headers['Authorization'] = `Bearer ${token}`   // 登录态注入
+  const resp = await fetch(apiUrl(path), { method, headers,
+    body: body === null ? undefined : JSON.stringify(body) })
+  if (!resp.ok) {                             // 错误归一：非 2xx → Error(detail)
+    let detail = `HTTP ${resp.status}`
+    try { const data = await resp.json(); if (data?.detail) detail = data.detail } catch {}
+    const err = new Error(detail); err.status = resp.status; throw err
+  }
+  return resp.json()
+}
+
+export async function streamSSE({ message, threadId = null, onDelta, onDone, onError, onCreated }) {
+  const run = await request('/runs', { method: 'POST', body: { message, thread_id: threadId } })
+  onCreated?.(run)                            // ① 两段式第一步：POST 建 run，回填 thread_id
+  const resp = await fetch(apiUrl(`/runs/${run.run_id}/stream`))
+  if (!resp.ok || !resp.body) { onError?.(`流打开失败 HTTP ${resp.status}`); return }
+  const reader = resp.body.getReader()        // ② 第二步：读流
+  const decoder = new TextDecoder()
+  let buffer = '', eventName = ''
+  for (;;) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    buffer = buffer.replace(/\r\n/g, '\n')   // 归一 CRLF：兼容 sse-starlette 的 \r\n\r\n 帧分隔
+    let sep
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {   // ③ 归一后按空行切 SSE 帧
+      const frame = buffer.slice(0, sep); buffer = buffer.slice(sep + 2)
+      if (!frame.trim()) continue
+      for (const line of frame.split('\n')) {
+        if (line.startsWith('event:')) eventName = line.slice(6).trim()
+        else if (line.startsWith('data:')) {
+          const payload = JSON.parse(line.slice(5).trim())
+          if (eventName === 'delta') onDelta?.(payload.delta ?? '')
+          else if (eventName === 'done') onDone?.(payload.response ?? '')
+          else if (eventName === 'error') onError?.(payload.error ?? '未知错误')
+          eventName = ''
+        }
+      }
+    }
+  }
+}
+```
+
+**逐块拆解**：
+
+- **`apiUrl`** — 所有请求统一走 `/api/*`；`import.meta.env.DEV` 分支存在但两条 return 相同（学习版 dev/生产都同源 /api，保留分支表达"Vite proxy / 生产反代"两种意图）。
+- **`request`** — 三件事：JSON 头、token 注入（有 token 才带 `Authorization`）、错误归一（非 2xx 取后端 `detail` 作 `Error.message` 并附加 `status`）。所有页面只跟它打交道。
+- **`streamSSE`** — 前端流式核心，对应后端两段式：`POST /runs` 拿 `run_id` → `GET /runs/{id}/stream` 读流。`onCreated` 在 run 创建后立即回调（聊天页用来回填新会话 thread_id）。
+- **SSE 帧解析** — 手写状态机：`buffer` 累积解码文本 → 按 `\n\n` 切帧 → 行级解析 `event:`/`data:` → 按事件名分发到 onDelta/onDone/onError。用 fetch 而非 EventSource（见 Q&A）。
+- **`modelsApi/threadsApi/authApi`** — 三个数据面薄封装，全部转调 `request()`：models（list/create/update/remove）、threads（list/create/remove）、auth（login）。
 
 ## ❓ Q&A / 知识点
 
@@ -73,9 +139,9 @@ A: 学习版最小实现。生产 XSS 可窃取 localStorage token；M8.1 若做
 
 ## ⚠️ 风险点
 
-1. SSE 帧解析按 `\n\n` 分隔——后端若发送单 `\n` 分隔帧会漏帧（当前 sse.py 由 sse-starlette 保证双换行）
+1. ~~SSE 帧解析按 `\n\n` 分隔~~（已修 2026-10-20）：sse-starlette 生产输出帧分隔是 `\r\n\r\n`（行内 `\n`），按 `\n\n` 切会永远切不开、事件全丢。现先 `replace(/\r\n/g,'\n')` 归一再切，兼容两种格式——测试同步改为 `\r\n\r\n` 生产格式 + 保留 `\n\n` 兼容用例
 2. `import.meta.env.DEV` 判定：生产构建走同源 `/api`，需反代/同源部署（学习版以 dev 为主）
 3. 并发流：聊天页用 `isStreaming` 防重入，但 streamSSE 本身不防——调用方负责
 4. token 过期（7 天 exp）后 API 仍可用（无校验中间件），属 M8.1 增强范围
 
-> 页脚：2026-10-17 · M8 前端核心 · 对标 `EvoFlow/evopanel/src/lib/api-client.js`（裁剪）
+> 页脚：2026-10-20 · M8 前端核心 · 对标 `EvoFlow/evopanel/src/lib/api-client.js`（裁剪；10-20 补 🧩 代码解析 + 修 SSE 帧分隔：\r\n\r\n 归一，测试改生产格式）
